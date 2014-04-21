@@ -56,6 +56,9 @@
 
 
     <bean id="samlProcessingFilter" class="org.springframework.security.saml.SAMLProcessingFilter">
+        <!--<constructor-arg value="/"/>
+        <constructor-arg ref="realLogoutHandler"/>-->
+        <property name="defaultTargetUrl" value="/" />
         <property name="authenticationManager" ref="authenticationManager"/>
         <property name="sAMLProcessor" ref="processor" />
         <property name="contextProvider" ref="contextProvider" />

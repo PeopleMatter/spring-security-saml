@@ -129,6 +129,7 @@
 
     <!-- Override default authentication processing filter with the one processing SAML messages -->
     <bean id="samlProcessingFilter" class="org.springframework.security.saml.SAMLProcessingFilter">
+        <property name="defaultTargetUrl" value="/" />
         <property name="authenticationManager" ref="authenticationManager"/>
         <property name="filterProcessesUrl" value="/saml/SSO"/>
         <property name="sAMLProcessor" ref="processor" />
