@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.AuthenticationException;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.log.SAMLLogger;
@@ -37,8 +37,8 @@ import org.springframework.security.saml.metadata.MetadataManager;
 import org.springframework.security.saml.util.SAMLUtil;
 import org.springframework.security.saml.websso.WebSSOProfile;
 import org.springframework.security.saml.websso.WebSSOProfileOptions;
-import org.springframework.security.web.AuthenticationEntryPoint;
-import org.springframework.security.web.FilterInvocation;
+import org.springframework.security.ui.AuthenticationEntryPoint;
+//import org.springframework.security.web.FilterInvocation;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.GenericFilterBean;
 
@@ -50,18 +50,23 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import org.springframework.security.ui.FilterChainOrder;
+import org.springframework.security.ui.SpringSecurityFilter;
 
 /**
- * Class initializes SAML WebSSO Profile, IDP Discovery or ECP Profile from the SP side. Configuration
- * of the local service provider and incoming request determines which profile will get invoked.
+ * Class initializes SAML WebSSO Profile, IDP Discovery or ECP Profile from the
+ * SP side. Configuration of the local service provider and incoming request
+ * determines which profile will get invoked.
  * <p/>
- * There are two ways the entry point can get invoked. Either user accesses a URL configured to require
- * some degree of authentication and throws AuthenticationException which is handled and invokes the entry point.
- * The other way is direct invocation of the entry point by accessing the /saml/login URL.
+ * There are two ways the entry point can get invoked. Either user accesses a
+ * URL configured to require some degree of authentication and throws
+ * AuthenticationException which is handled and invokes the entry point. The
+ * other way is direct invocation of the entry point by accessing the
+ * /saml/login URL.
  *
  * @author Vladimir Schaefer
  */
-public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationEntryPoint {
+public class SAMLEntryPoint extends SpringSecurityFilter implements AuthenticationEntryPoint {
 
     protected final static Logger logger = LoggerFactory.getLogger(SAMLEntryPoint.class);
 
@@ -85,31 +90,31 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     public static final String FILTER_URL = "/saml/login";
 
     /**
-     * Name of parameter of HttpRequest telling entry point that the login should use specified idp.
+     * Name of parameter of HttpRequest telling entry point that the login
+     * should use specified idp.
      */
     public static final String IDP_PARAMETER = "idp";
 
     /**
-     * Parameter is used to indicate response from IDP discovery service. When present IDP discovery is not invoked
-     * again.
+     * Parameter is used to indicate response from IDP discovery service. When
+     * present IDP discovery is not invoked again.
      */
     public static final String DISCOVERY_RESPONSE_PARAMETER = "disco";
 
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+    public void doFilterHttp(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
 
-        FilterInvocation fi = new FilterInvocation(request, response, chain);
-
-        if (!processFilter(fi.getRequest())) {
+        if (!processFilter(request)) {
             chain.doFilter(request, response);
             return;
         }
 
-        commence(fi.getRequest(), fi.getResponse(), null);
+        commence(request, response, null);
 
     }
 
     /**
-     * The filter will be used in case the URL of the request contains the DEFAULT_FILTER_URL.
+     * The filter will be used in case the URL of the request contains the
+     * DEFAULT_FILTER_URL.
      *
      * @param request request used to determine whether to enable this filter
      * @return true if this filter should be used
@@ -119,31 +124,41 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Method starts a process used to ultimately authenticate user using WebSSO Profile. First task of the mechanism
-     * is to determine which IDP to use. Available options are: let the user agent determine IDP for us (ECP profile), use IDP discovery
-     * to determine IDP (or accept a predefined IDP in request), or use the default IDP. The following logic is used to determine our case:
+     * Method starts a process used to ultimately authenticate user using WebSSO
+     * Profile. First task of the mechanism is to determine which IDP to use.
+     * Available options are: let the user agent determine IDP for us (ECP
+     * profile), use IDP discovery to determine IDP (or accept a predefined IDP
+     * in request), or use the default IDP. The following logic is used to
+     * determine our case:
      * <p/>
      * <ul>
-     * <li>In case IDP wasn't determined in contextProvider and discovery is enabled and the current request doesn't already contain IDP information then IDP Discovery is initialized</li>
-     * <li>In case request supports Enhanced Client or Proxy as per SAML specification and ECP is supported authentication is initialized using ECP.</li>
-     * <li>In case IDP is available WebSSO or HoKWebSSO is initialized otherwise we fail during SSO initialization.</li>
+     * <li>In case IDP wasn't determined in contextProvider and discovery is
+     * enabled and the current request doesn't already contain IDP information
+     * then IDP Discovery is initialized</li>
+     * <li>In case request supports Enhanced Client or Proxy as per SAML
+     * specification and ECP is supported authentication is initialized using
+     * ECP.</li>
+     * <li>In case IDP is available WebSSO or HoKWebSSO is initialized otherwise
+     * we fail during SSO initialization.</li>
      * </ul>
      * <p/>
-     * By default contextProvider determines IDP to use by parameter "idp". In case parameter is missing the defaultIDP is used instead.
+     * By default contextProvider determines IDP to use by parameter "idp". In
+     * case parameter is missing the defaultIDP is used instead.
      * <p/>
      * Subclasses can customize the WebSSO initialization behavior.
      *
-     * @param request  request
+     * @param request request
      * @param response response
-     * @param e        exception causing this entry point to be invoked or null when EntryPoint is invoked directly
-     * @throws IOException      error sending response
+     * @param e exception causing this entry point to be invoked or null when
+     * EntryPoint is invoked directly
+     * @throws IOException error sending response
      * @throws ServletException error initializing SAML protocol
      */
-    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException e) throws IOException, ServletException {
+    public void commence(ServletRequest request, ServletResponse response, AuthenticationException e) throws IOException, ServletException {
 
         try {
 
-            SAMLMessageContext context = contextProvider.getLocalAndPeerEntity(request, response);
+            SAMLMessageContext context = contextProvider.getLocalAndPeerEntity((HttpServletRequest) request, (HttpServletResponse) response);
 
             if (isECP(context)) {
                 initializeECP(context, e);
@@ -171,11 +186,12 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
      * <p/>
      * Subclasses can alter the initialization behaviour.
      *
-     * @param context saml context, also containing wrapped request and response objects
-     * @param e       exception causing the entry point to be invoked (if any)
+     * @param context saml context, also containing wrapped request and response
+     * objects
+     * @param e exception causing the entry point to be invoked (if any)
      * @throws MetadataProviderException in case metadata can't be queried
-     * @throws SAMLException             in case message sending fails
-     * @throws MessageEncodingException  in case SAML message encoding fails
+     * @throws SAMLException in case message sending fails
+     * @throws MessageEncodingException in case SAML message encoding fails
      */
     protected void initializeECP(SAMLMessageContext context, AuthenticationException e) throws MetadataProviderException, SAMLException, MessageEncodingException {
 
@@ -188,18 +204,21 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * WebSSO profile or WebSSO Holder-of-Key profile. Selection is made based on the settings of the Service Provider.
-     * In case Enhanced Client/Proxy is enabled and the request claims to support this profile it is used. Otherwise it is verified what is the binding
-     * and profile specified for the assertionConsumerIndex in the WebSSOProfileOptions. In case it is HoK the WebSSO Holder-of-Key profile is used,
-     * otherwise the ordinary WebSSO.
+     * WebSSO profile or WebSSO Holder-of-Key profile. Selection is made based
+     * on the settings of the Service Provider. In case Enhanced Client/Proxy is
+     * enabled and the request claims to support this profile it is used.
+     * Otherwise it is verified what is the binding and profile specified for
+     * the assertionConsumerIndex in the WebSSOProfileOptions. In case it is HoK
+     * the WebSSO Holder-of-Key profile is used, otherwise the ordinary WebSSO.
      * <p/>
      * Subclasses can alter the initialization behaviour.
      *
-     * @param context saml context, also containing wrapped request and response objects
-     * @param e       exception causing the entry point to be invoked (if any)
+     * @param context saml context, also containing wrapped request and response
+     * objects
+     * @param e exception causing the entry point to be invoked (if any)
      * @throws MetadataProviderException in case metadata can't be queried
-     * @throws SAMLException             in case message sending fails
-     * @throws MessageEncodingException  in case SAML message encoding fails
+     * @throws SAMLException in case message sending fails
+     * @throws MessageEncodingException in case SAML message encoding fails
      */
     protected void initializeSSO(SAMLMessageContext context, AuthenticationException e) throws MetadataProviderException, SAMLException, MessageEncodingException {
 
@@ -229,13 +248,16 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Method initializes IDP Discovery Profile as defined in http://docs.oasis-open.org/security/saml/Post2.0/sstc-saml-idp-discovery.pdf
-     * It is presumed that metadata of the local Service Provider contains discovery return address.
+     * Method initializes IDP Discovery Profile as defined in
+     * http://docs.oasis-open.org/security/saml/Post2.0/sstc-saml-idp-discovery.pdf
+     * It is presumed that metadata of the local Service Provider contains
+     * discovery return address.
      *
      * @param context saml context also containing request and response objects
-     * @throws ServletException          error
-     * @throws IOException               io error
-     * @throws MetadataProviderException in case metadata of the local entity can't be populated
+     * @throws ServletException error
+     * @throws IOException io error
+     * @throws MetadataProviderException in case metadata of the local entity
+     * can't be populated
      */
     protected void initializeDiscovery(SAMLMessageContext context) throws ServletException, IOException, MetadataProviderException {
 
@@ -272,12 +294,15 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Method is supposed to populate preferences used to construct the SAML message. Method can be overridden to provide
-     * logic appropriate for given application. In case defaultOptions object was set it will be used as basis for construction
-     * and request specific values will be update (idp field).
+     * Method is supposed to populate preferences used to construct the SAML
+     * message. Method can be overridden to provide logic appropriate for given
+     * application. In case defaultOptions object was set it will be used as
+     * basis for construction and request specific values will be update (idp
+     * field).
      *
-     * @param context   containing local entity
-     * @param exception exception causing invocation of this entry point (can be null)
+     * @param context containing local entity
+     * @param exception exception causing invocation of this entry point (can be
+     * null)
      * @return populated webSSOprofile
      * @throws MetadataProviderException in case metadata loading fails
      */
@@ -295,7 +320,8 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Sets object which determines default values to be used as basis for construction during getProfileOptions call.
+     * Sets object which determines default values to be used as basis for
+     * construction during getProfileOptions call.
      *
      * @param defaultOptions default object to use for options construction
      */
@@ -308,9 +334,10 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Determines whether IDP Discovery should be initialized. By default no user-selected IDP must be present in the context,
-     * IDP Discovery must be enabled and the request mustn't be a response from IDP Discovery in order for the method
-     * to return true.
+     * Determines whether IDP Discovery should be initialized. By default no
+     * user-selected IDP must be present in the context, IDP Discovery must be
+     * enabled and the request mustn't be a response from IDP Discovery in order
+     * for the method to return true.
      *
      * @param context context
      * @return true if IDP Discovery should get initialized
@@ -320,9 +347,10 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Determines whether ECP profile should get initialized. By default ECP is used when request declares supports for ECP
-     * and ECP is allowed for the current service provider. In case ECP is enabled but webSSOprofileECP wasn't set a warning
-     * is logged and ECP is not used.
+     * Determines whether ECP profile should get initialized. By default ECP is
+     * used when request declares supports for ECP and ECP is allowed for the
+     * current service provider. In case ECP is enabled but webSSOprofileECP
+     * wasn't set a warning is logged and ECP is not used.
      *
      * @param context context
      * @return true if ECP profile should get initialized
@@ -343,11 +371,13 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * True value indicates that request is a response from the discovery profile. We use the value to
-     * prevent repeated invocation of the discovery service upon failure.
+     * True value indicates that request is a response from the discovery
+     * profile. We use the value to prevent repeated invocation of the discovery
+     * service upon failure.
      *
      * @param context context with request and response included
-     * @return true if this HttpRequest is a response from IDP discovery profile.
+     * @return true if this HttpRequest is a response from IDP discovery
+     * profile.
      */
     private boolean isDiscoResponse(SAMLMessageContext context) {
         HTTPInTransport request = (HTTPInTransport) context.getInboundMessageTransport();
@@ -356,7 +386,8 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Profile for consumption of processed messages, cannot be null, must be set.
+     * Profile for consumption of processed messages, cannot be null, must be
+     * set.
      *
      * @param webSSOprofile profile
      */
@@ -392,6 +423,7 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
 
     /**
      * Dependency for loading of discovery URL
+     *
      * @param samlDiscovery saml discovery endpoint
      */
     @Autowired(required = false)
@@ -429,7 +461,8 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
     }
 
     /**
-     * Custom filter URL which overrides the default. Filter url determines URL where filter starts processing.
+     * Custom filter URL which overrides the default. Filter url determines URL
+     * where filter starts processing.
      *
      * @param filterProcessesUrl filter URL
      */
@@ -437,14 +470,18 @@ public class SAMLEntryPoint extends GenericFilterBean implements AuthenticationE
         this.filterProcessesUrl = filterProcessesUrl;
     }
 
+    public int getOrder() {
+        return FilterChainOrder.PRE_AUTH_FILTER - 80;
+    }
+
     /**
      * Verifies that required entities were autowired or set.
      *
      * @throws ServletException
      */
-    @Override
+    //@Override
     public void afterPropertiesSet() throws ServletException {
-        super.afterPropertiesSet();
+        //super.afterPropertiesSet();
         Assert.notNull(webSSOprofile, "WebSSO profile must be set");
         Assert.notNull(metadata, "Metadata must be set");
         Assert.notNull(samlLogger, "Logger must be set");

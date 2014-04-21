@@ -15,7 +15,7 @@
  */
 package org.springframework.security.saml.log;
 
-import org.springframework.security.core.Authentication;
+import org.springframework.security.Authentication;
 import org.springframework.security.saml.context.SAMLMessageContext;
 
 /**

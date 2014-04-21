@@ -30,7 +30,7 @@ import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.metadata.ExtendedMetadata;
 import org.springframework.security.saml.metadata.MetadataManager;
 import org.springframework.security.saml.util.SAMLUtil;
-import org.springframework.security.web.FilterInvocation;
+//import org.springframework.security.web.FilterInvocation;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.GenericFilterBean;
 
@@ -131,14 +131,12 @@ public class SAMLDiscovery extends GenericFilterBean {
 
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
 
-        FilterInvocation fi = new FilterInvocation(request, response, chain);
-
-        if (!processFilter(fi.getRequest())) {
+         if (!processFilter((HttpServletRequest)request)) {
             chain.doFilter(request, response);
             return;
         }
 
-        processDiscoveryRequest(fi.getRequest(), fi.getResponse());
+        processDiscoveryRequest((HttpServletRequest)request, (HttpServletResponse)response);
 
     }
 

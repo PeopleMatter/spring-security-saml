@@ -14,8 +14,8 @@
  */
 package org.springframework.security.providers;
 
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.providers.UsernamePasswordAuthenticationToken;
+import org.springframework.security.GrantedAuthority;
 
 import java.util.Collection;
 import java.util.Date;
@@ -50,7 +50,7 @@ public class ExpiringUsernameAuthenticationToken extends UsernamePasswordAuthent
      * @param credentials     credentials
      * @param authorities     authorities
      */
-    public ExpiringUsernameAuthenticationToken(Date tokenExpiration, Object principal, Object credentials, Collection<? extends GrantedAuthority> authorities) {
+    public ExpiringUsernameAuthenticationToken(Date tokenExpiration, Object principal, Object credentials, GrantedAuthority[] authorities) {
         super(principal, credentials, authorities);
         this.tokenExpiration = tokenExpiration;
     }
@@ -78,7 +78,7 @@ public class ExpiringUsernameAuthenticationToken extends UsernamePasswordAuthent
     /**
      * SAML credentials can be kept without clearing.
      */
-    @Override
+    //@Override
     public void eraseCredentials() {
     }
 

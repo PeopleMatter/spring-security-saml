@@ -20,17 +20,17 @@ import org.opensaml.common.SAMLRuntimeException;
 import org.opensaml.saml2.metadata.provider.MetadataProviderException;
 import org.opensaml.ws.message.encoder.MessageEncodingException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.Authentication;
+import org.springframework.security.context.SecurityContextHolder;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.log.SAMLLogger;
 import org.springframework.security.saml.util.SAMLUtil;
 import org.springframework.security.saml.websso.SingleLogoutProfile;
-import org.springframework.security.web.FilterInvocation;
-import org.springframework.security.web.authentication.logout.LogoutFilter;
-import org.springframework.security.web.authentication.logout.LogoutHandler;
-import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+//import org.springframework.security.web.FilterInvocation;
+import org.springframework.security.ui.logout.LogoutFilter;
+import org.springframework.security.ui.logout.LogoutHandler;
+//import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.util.Assert;
 
 import javax.servlet.FilterChain;
@@ -92,16 +92,16 @@ public class SAMLLogoutFilter extends LogoutFilter {
      * @param localHandler         handlers to be invoked when local logout is selected
      * @param globalHandlers       handlers to be invoked when global logout is selected
      */
-    public SAMLLogoutFilter(LogoutSuccessHandler logoutSuccessHandler, LogoutHandler[] localHandler, LogoutHandler[] globalHandlers) {
+    /*public SAMLLogoutFilter(LogoutSuccessHandler logoutSuccessHandler, LogoutHandler[] localHandler, LogoutHandler[] globalHandlers) {
         super(logoutSuccessHandler, localHandler);
         this.globalHandlers = globalHandlers;
         this.setFilterProcessesUrl(FILTER_URL);
-    }
+    }*/
 
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        FilterInvocation fi = new FilterInvocation(request, response, chain);
-        processLogout(fi.getRequest(), fi.getResponse(), chain);
+    public void doFilterHttp(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
+        //FilterInvocation fi = new FilterInvocation(request, response, chain);
+        processLogout(request, response, chain);
     }
 
     /**
@@ -147,13 +147,13 @@ public class SAMLLogoutFilter extends LogoutFilter {
                 }
 
             } catch (SAMLException e) {
-                logger.debug("Error initializing global logout", e);
+                //logger.debug("Error initializing global logout", e);
                 throw new ServletException("Error initializing global logout", e);
             } catch (MetadataProviderException e) {
-                logger.debug("Error processing metadata", e);
+                //logger.debug("Error processing metadata", e);
                 throw new ServletException("Error processing metadata", e);
             } catch (MessageEncodingException e) {
-                logger.debug("Error encoding outgoing message", e);
+                //logger.debug("Error encoding outgoing message", e);
                 throw new ServletException("Error encoding outgoing message", e);
             }
 
@@ -225,9 +225,9 @@ public class SAMLLogoutFilter extends LogoutFilter {
      *
      * @throws ServletException
      */
-    @Override
+    //@Override
     public void afterPropertiesSet() throws ServletException {
-        super.afterPropertiesSet();
+        //super.afterPropertiesSet();
         Assert.notNull(profile, "Single logout profile must be set");
         Assert.notNull(contextProvider, "Context provider must be set");
         Assert.notNull(samlLogger, "SAML Logger must be set");

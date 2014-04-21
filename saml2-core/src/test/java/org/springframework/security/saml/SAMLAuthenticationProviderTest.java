@@ -21,11 +21,11 @@ import org.opensaml.common.SAMLException;
 import org.opensaml.saml2.core.Assertion;
 import org.opensaml.saml2.core.AuthnStatement;
 import org.opensaml.saml2.core.NameID;
-import org.springframework.security.authentication.AuthenticationServiceException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.User;
+import org.springframework.security.AuthenticationServiceException;
+import org.springframework.security.providers.UsernamePasswordAuthenticationToken;
+import org.springframework.security.Authentication;
+import org.springframework.security.GrantedAuthorityImpl;;
+import org.springframework.security.userdetails.User;
 import org.springframework.security.providers.ExpiringUsernameAuthenticationToken;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.log.SAMLEmptyLogger;
@@ -38,6 +38,7 @@ import java.util.LinkedList;
 
 import static junit.framework.Assert.*;
 import static org.easymock.EasyMock.*;
+import org.springframework.security.GrantedAuthority;
 
 /**
  * @author Vladimir Schafer
@@ -124,7 +125,7 @@ public class SAMLAuthenticationProviderTest {
 
         expect(consumer.processAuthenticationResponse(context)).andReturn(result);
         expect(assertion.getAuthnStatements()).andReturn(new LinkedList<AuthnStatement>());
-        User user = new User("test", "test", true, true, true, true, Arrays.asList(new SimpleGrantedAuthority("role1"), new SimpleGrantedAuthority("role2")));
+        User user = new User("test", "test", true, true, true, true, new GrantedAuthority[] {new GrantedAuthorityImpl("role1"), new GrantedAuthorityImpl("role2")});
         expect(details.loadUserBySAML(result)).andReturn(user);
 
         provider.setForcePrincipalAsString(false);
@@ -135,9 +136,10 @@ public class SAMLAuthenticationProviderTest {
         assertEquals(user, authentication.getPrincipal());
         assertEquals(user.getUsername(), authentication.getName());
         assertNotNull(authentication.getDetails());
-        assertEquals(2, authentication.getAuthorities().size());
-        assertTrue(authentication.getAuthorities().contains(new SimpleGrantedAuthority("role1")));
-        assertTrue(authentication.getAuthorities().contains(new SimpleGrantedAuthority("role2")));
+        GrantedAuthority[] auths = authentication.getAuthorities();
+        assertEquals(2, Arrays.asList(auths).size());
+        assertTrue(Arrays.asList(auths).contains(new GrantedAuthorityImpl("role1")));
+        assertTrue(Arrays.asList(auths).contains(new GrantedAuthorityImpl("role2")));
         verify(details);
         verifyMock();
     }

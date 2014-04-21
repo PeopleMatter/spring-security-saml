@@ -14,6 +14,7 @@
  */
 package org.springframework.security.saml;
 
+import java.lang.reflect.Array;
 import org.joda.time.DateTime;
 import org.opensaml.common.SAMLException;
 import org.opensaml.common.SAMLRuntimeException;
@@ -25,12 +26,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.AuthenticationServiceException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.providers.AuthenticationProvider;
+import org.springframework.security.AuthenticationServiceException;
+import org.springframework.security.Authentication;
+import org.springframework.security.AuthenticationException;
+import org.springframework.security.GrantedAuthority;
+import org.springframework.security.userdetails.UserDetails;
 import org.springframework.security.providers.ExpiringUsernameAuthenticationToken;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.log.SAMLLogger;
@@ -108,7 +109,7 @@ public class SAMLAuthenticationProvider implements AuthenticationProvider, Initi
 
         Object userDetails = getUserDetails(credential);
         Object principal = getPrincipal(credential, userDetails);
-        Collection<? extends GrantedAuthority> entitlements = getEntitlements(credential, userDetails);
+        GrantedAuthority[] entitlements = getEntitlements(credential, userDetails);
 
         Date expiration = getExpirationDate(credential);
         ExpiringUsernameAuthenticationToken result = new ExpiringUsernameAuthenticationToken(expiration, principal, credential, entitlements);
@@ -170,13 +171,11 @@ public class SAMLAuthenticationProvider implements AuthenticationProvider, Initi
      * @param userDetail user detail object returned from getUserDetails call
      * @return collection of users entitlements, mustn't be null
      */
-    protected Collection<? extends GrantedAuthority> getEntitlements(SAMLCredential credential, Object userDetail) {
+    protected GrantedAuthority[] getEntitlements(SAMLCredential credential, Object userDetail) {
         if (userDetail instanceof UserDetails) {
-            List<GrantedAuthority> authorities = new ArrayList<GrantedAuthority>();
-            authorities.addAll(((UserDetails) userDetail).getAuthorities());
-            return authorities;
+            return ((UserDetails) userDetail).getAuthorities();
         } else {
-            return Collections.emptyList();
+            return (GrantedAuthority[])Array.newInstance(GrantedAuthority.class, 0);
         }
     }
 

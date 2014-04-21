@@ -23,17 +23,17 @@ import org.opensaml.ws.message.decoder.MessageDecodingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.Authentication;
+import org.springframework.security.context.SecurityContextHolder;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.log.SAMLLogger;
 import org.springframework.security.saml.processor.SAMLProcessor;
 import org.springframework.security.saml.util.SAMLUtil;
 import org.springframework.security.saml.websso.SingleLogoutProfile;
-import org.springframework.security.web.authentication.logout.LogoutFilter;
-import org.springframework.security.web.authentication.logout.LogoutHandler;
-import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+import org.springframework.security.ui.logout.LogoutFilter;
+import org.springframework.security.ui.logout.LogoutHandler;
+//import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.util.Assert;
 
 import javax.servlet.FilterChain;
@@ -91,15 +91,15 @@ public class SAMLLogoutProcessingFilter extends LogoutFilter {
      * @param logoutSuccessHandler custom implementation of the logout logic
      * @param handlers             handlers to invoke after logout
      */
-    public SAMLLogoutProcessingFilter(LogoutSuccessHandler logoutSuccessHandler, LogoutHandler... handlers) {
+    /*public SAMLLogoutProcessingFilter(LogoutSuccessHandler logoutSuccessHandler, LogoutHandler... handlers) {
         super(logoutSuccessHandler, handlers);
         this.handlers = Arrays.asList(handlers);
         this.setFilterProcessesUrl(FILTER_URL);
-    }
+    }*/
 
     @Override
-    public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain) throws IOException, ServletException {
-        processLogout((HttpServletRequest) req, (HttpServletResponse) res, chain);
+    public void doFilterHttp(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws IOException, ServletException {
+        processLogout(req, res, chain);
     }
 
     /**
@@ -130,16 +130,12 @@ public class SAMLLogoutProcessingFilter extends LogoutFilter {
                 context.setLocalEntityEndpoint(SAMLUtil.getEndpoint(context.getLocalEntityRoleMetadata().getEndpoints(), context.getInboundSAMLBinding(), getFilterProcessesUrl()));
 
             } catch (SAMLException e) {
-                logger.debug("Incoming SAML message is invalid", e);
                 throw new ServletException("Incoming SAML message is invalid", e);
             } catch (MetadataProviderException e) {
-                logger.debug("Error determining metadata contracts", e);
                 throw new ServletException("Error determining metadata contracts", e);
             } catch (MessageDecodingException e) {
-                logger.debug("Error decoding incoming SAML message", e);
                 throw new ServletException("Error decoding incoming SAML message", e);
             } catch (org.opensaml.xml.security.SecurityException e) {
-                logger.debug("Incoming SAML message is invalid", e);
                 throw new ServletException("Incoming SAML message is invalid", e);
             }
 
@@ -280,9 +276,9 @@ public class SAMLLogoutProcessingFilter extends LogoutFilter {
      *
      * @throws ServletException
      */
-    @Override
+    //@Override
     public void afterPropertiesSet() throws ServletException {
-        super.afterPropertiesSet();
+        //super.afterPropertiesSet();
         Assert.notNull(processor, "SAMLProcessor must be set");
         Assert.notNull(contextProvider, "Context provider must be set");
         Assert.notNull(logoutProfile, "Logout profile must be set");

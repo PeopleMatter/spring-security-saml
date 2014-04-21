@@ -14,23 +14,25 @@
  */
 package org.springframework.security.saml;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
-
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.Authentication;
+import org.springframework.security.util.RedirectUtils;
 
 /**
  * Implementation of a success handler which interprets meaning of the RelayState inside SAMLCredential
  * as an URL to redirect user to.
  *
  * @author Vladimir Schafer
+ * @deprecated doesn't work with Spring-Security 2.0
  */
-public class SAMLRelayStateSuccessHandler extends SavedRequestAwareAuthenticationSuccessHandler {
+public class SAMLRelayStateSuccessHandler extends SAMLProcessingFilter {
 
     /**
      * Class logger.
@@ -42,7 +44,7 @@ public class SAMLRelayStateSuccessHandler extends SavedRequestAwareAuthenticatio
      * is present uses it as the target URL. In case the state is missing behaviour is the same as of the
      * SavedRequestAwareAuthenticationSuccessHandler.
      */
-    @Override
+    //@Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws ServletException, IOException {
 
         Object credentials = authentication.getCredentials();
@@ -51,12 +53,15 @@ public class SAMLRelayStateSuccessHandler extends SavedRequestAwareAuthenticatio
             String relayStateURL = getTargetURL(samlCredential.getRelayState());
             if (relayStateURL != null) {
                 log.debug("Redirecting to RelayState Url: " + relayStateURL);
-                getRedirectStrategy().sendRedirect(request, response, relayStateURL);
-                return;
+                try {
+                    RedirectUtils.sendRedirect(request, response, relayStateURL, (new URI(relayStateURL)).isAbsolute());
+                } catch (URISyntaxException se) {
+                    log.warn("failed to redirect to "+relayStateURL+", reason is: "+se.getLocalizedMessage());
+                }                
             }
         }
 
-        super.onAuthenticationSuccess(request, response, authentication);
+        //super.onAuthenticationSuccess(request, response, authentication);
 
     }
 

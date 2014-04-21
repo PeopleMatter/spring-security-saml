@@ -20,19 +20,20 @@ import org.opensaml.ws.message.decoder.MessageDecodingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.authentication.AuthenticationServiceException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.AuthenticationServiceException;
+import org.springframework.security.Authentication;
+import org.springframework.security.AuthenticationException;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.processor.SAMLProcessor;
 import org.springframework.security.saml.util.SAMLUtil;
-import org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter;
-import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
+import org.springframework.security.ui.AbstractProcessingFilter;
+//import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.util.Assert;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import org.springframework.security.ui.FilterChainOrder;
 
 /**
  * Filter processes arriving SAML messages by delegating to the WebSSOProfile. After the SAMLAuthenticationToken
@@ -40,7 +41,7 @@ import javax.servlet.http.HttpServletResponse;
  *
  * @author Vladimir Schäfer
  */
-public class SAMLProcessingFilter extends AbstractAuthenticationProcessingFilter {
+public class SAMLProcessingFilter extends AbstractProcessingFilter {
 
     protected final static Logger logger = LoggerFactory.getLogger(SAMLProcessingFilter.class);
 
@@ -57,7 +58,7 @@ public class SAMLProcessingFilter extends AbstractAuthenticationProcessingFilter
     }
 
     protected SAMLProcessingFilter(String defaultFilterProcessesUrl) {
-        super(defaultFilterProcessesUrl);
+        //super(defaultFilterProcessesUrl);
     }
 
     /**
@@ -68,12 +69,12 @@ public class SAMLProcessingFilter extends AbstractAuthenticationProcessingFilter
      * @return authentication object in case SAML data was found and valid
      * @throws AuthenticationException authentication failure
      */
-    public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
+    public Authentication attemptAuthentication(HttpServletRequest request) throws AuthenticationException {
 
         try {
 
             logger.debug("Attempting SAML2 authentication using profile {}", getProfileName());
-            SAMLMessageContext context = contextProvider.getLocalEntity(request, response);
+            SAMLMessageContext context = contextProvider.getLocalEntity(request, null);
             processor.retrieveMessage(context);
 
             // Override set values
@@ -124,13 +125,16 @@ public class SAMLProcessingFilter extends AbstractAuthenticationProcessingFilter
      * @see org.springframework.security.saml.SAMLRelayStateSuccessHandler
      * @see org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler
      */
-    @Deprecated
-    public void setDefaultTargetUrl(String url) {
+    //@Deprecated
+    /*public void setDefaultTargetUrl(String url) {
         SavedRequestAwareAuthenticationSuccessHandler handler = new SavedRequestAwareAuthenticationSuccessHandler();
         handler.setDefaultTargetUrl(url);
         setAuthenticationSuccessHandler(handler);
-    }
+    }*/
 
+    public String getDefaultFilterProcessesUrl() {
+        return FILTER_URL;
+    }
 
     /**
      * Object capable of parse SAML messages from requests, must be set.
@@ -158,10 +162,14 @@ public class SAMLProcessingFilter extends AbstractAuthenticationProcessingFilter
      * Verifies that required entities were autowired or set.
      */
     @Override
-    public void afterPropertiesSet() {
+    public void afterPropertiesSet() throws Exception {
         super.afterPropertiesSet();
         Assert.notNull(processor, "SAMLProcessor must be set");
         Assert.notNull(contextProvider, "Context provider must be set");
+    }
+    
+    public int getOrder() {
+        return FilterChainOrder.AUTHENTICATION_PROCESSING_FILTER;
     }
 
 }

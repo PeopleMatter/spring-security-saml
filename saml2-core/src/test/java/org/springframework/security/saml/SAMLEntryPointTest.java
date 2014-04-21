@@ -65,7 +65,7 @@ public class SAMLEntryPointTest {
         metadata = (MetadataManager) context.getBean("metadata");
         ssoProfile = createMock(WebSSOProfile.class);
         entryPoint.setWebSSOprofile(ssoProfile);
-        entryPoint.setServletContext(servletContext);
+        //entryPoint.setServletContext(servletContext);
         request = createMock(HttpServletRequest.class);
         response = createMock(HttpServletResponse.class);
         session = createMock(HttpSession.class);

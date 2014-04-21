@@ -15,8 +15,10 @@
  */
 package org.springframework.security.saml.trust;
 
-import org.springframework.security.crypto.codec.Base64;
-import org.springframework.security.crypto.codec.Hex;
+//import org.springframework.security.crypto.codec.Base64;
+//import org.springframework.security.crypto.codec.Hex;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.codec.binary.Hex;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -79,7 +81,7 @@ public class UntrustedCertificateException extends CertificateException {
             byte[] der = cert.getEncoded();
             md.update(der);
             byte[] digest = md.digest();
-            char[] encode = Hex.encode(digest);
+            char[] encode = Hex.encodeHex(digest);
             appendHexSpace(encode, sb);
         } catch (NoSuchAlgorithmException e) {
             sb.append ("Error calculating thumbprint: " + e.getMessage());
@@ -100,7 +102,7 @@ public class UntrustedCertificateException extends CertificateException {
     private static void appendCertificate(X509Certificate x509Certificate, StringBuilder sb) {
         sb.append("-----BEGIN CERTIFICATE-----\n");
         try {
-            String certificate = new String(Base64.encode(x509Certificate.getEncoded()));
+            String certificate = new String(Base64.encodeBase64(x509Certificate.getEncoded()));
             int i = 0;
             while (true) {
                 int j = i + 76;

@@ -27,7 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.util.SAMLUtil;
-import org.springframework.security.web.FilterInvocation;
+//import org.springframework.security.web.FilterInvocation;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.GenericFilterBean;
 import org.w3c.dom.Element;
@@ -77,14 +77,12 @@ public class MetadataDisplayFilter extends GenericFilterBean {
 
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
 
-        FilterInvocation fi = new FilterInvocation(request, response, chain);
-
-        if (!processFilter(fi.getRequest())) {
+        if (!processFilter((HttpServletRequest)request)) {
             chain.doFilter(request, response);
             return;
         }
 
-        processMetadataDisplay(fi.getRequest(), fi.getResponse());
+        processMetadataDisplay((HttpServletRequest)request, (HttpServletResponse)response);
 
     }
 

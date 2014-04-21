@@ -22,10 +22,10 @@ import org.opensaml.common.SAMLException;
 import org.opensaml.common.xml.SAMLConstants;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.AuthenticationServiceException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.AuthenticationManager;
+import org.springframework.security.AuthenticationServiceException;
+import org.springframework.security.providers.UsernamePasswordAuthenticationToken;
+import org.springframework.security.Authentication;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.security.saml.processor.SAMLProcessor;
 
@@ -58,8 +58,8 @@ public class
         processor = createMock(SAMLProcessor.class);
         processingFiler.setSAMLProcessor(processor);
 
-        request = createMock(HttpServletRequest.class);
-        session = createMock(HttpSession.class);
+        request = createNiceMock(HttpServletRequest.class);
+        session = createNiceMock(HttpSession.class);
 
     }
 
@@ -79,10 +79,13 @@ public class
      */
     @Test(expected = AuthenticationServiceException.class)
     public void testErrorDuringProcessing() throws Exception {
+        expect(request.getSession(true)).andReturn(session);
+        expect(session.getAttribute("_springSamlStorageKey")).andReturn(null);
+        expectLastCall().times(2);
         SAMLTestHelper.setLocalContextParameters(request, "/saml", null);
         expect(processor.retrieveMessage((SAMLMessageContext) notNull())).andThrow(new SAMLException("Processing error"));
         replayMock();
-        processingFiler.attemptAuthentication(request, null);
+        processingFiler.attemptAuthentication(request);
         verifyMock();
     }
 
@@ -98,6 +101,10 @@ public class
      */
     @Test(expected = AuthenticationServiceException.class)
     public void testInvalidBinding() throws Exception {
+        expect(request.getSession(true)).andReturn(session);
+        expect(session.getAttribute("_springSamlStorageKey")).andReturn(null);
+        expectLastCall().times(2);
+
 
         AuthenticationManager manager = createMock(AuthenticationManager.class);
         processingFiler.setAuthenticationManager(manager);
@@ -113,7 +120,7 @@ public class
 
         replay(manager);
         replayMock();
-        processingFiler.attemptAuthentication(request, null);
+        processingFiler.attemptAuthentication(request);
         verifyMock();
         verify(manager);
 
@@ -127,6 +134,11 @@ public class
      */
     @Test
     public void testCorrectPass() throws Exception {
+        expect(request.getSession(true)).andReturn(session);
+        expect(session.getAttribute("_springSamlStorageKey")).andReturn(null);
+        expectLastCall().times(2);
+
+        
 
         Authentication token = new UsernamePasswordAuthenticationToken("user", "pass");
         AuthenticationManager manager = createMock(AuthenticationManager.class);
@@ -145,7 +157,7 @@ public class
 
         replay(manager);
         replayMock();
-        Authentication authentication = processingFiler.attemptAuthentication(request, null);
+        Authentication authentication = processingFiler.attemptAuthentication(request);
         assertEquals(token, authentication);
         verifyMock();
         verify(manager);

@@ -14,7 +14,7 @@
  */
 package org.springframework.security.saml;
 
-import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.providers.AbstractAuthenticationToken;
 import org.springframework.security.saml.context.SAMLMessageContext;
 import org.springframework.util.Assert;
 

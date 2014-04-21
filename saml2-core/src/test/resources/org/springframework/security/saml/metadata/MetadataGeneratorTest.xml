@@ -3,10 +3,10 @@
        xmlns:context="http://www.springframework.org/schema/context"
        xmlns:security="http://www.springframework.org/schema/security"
        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd
-              http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security-3.1.xsd
+              http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security-2.0.xsd
               http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd">
 
-    <context:component-scan base-package="org.springframework.security.saml"/>
+    <!--<context:component-scan base-package="org.springframework.security.saml"/>-->
 
     <!-- Central storage of cryptographic keys -->
     <bean id="keyManager" class="org.springframework.security.saml.key.JKSKeyManager">
@@ -30,6 +30,7 @@
         <!-- OPTIONAL property: can tell the system which IDP should be used for authenticating user by default. -->
         <property name="defaultIDP" value="nest3"/>
         <property name="refreshCheckInterval" value="10000"/>
+        <property name="keyManager" ref="keyManager" />
     </bean>
 
     <!-- Entry point to initialize authentication, default values taken from properties file -->
@@ -41,34 +42,45 @@
         </property>
     </bean>
 
-    <!-- Register authentication manager with SAML provider -->
+    <!-- Register authentication manager with SAML provider 
     <security:authentication-manager alias="authenticationManager">
         <security:authentication-provider ref="samlAuthenticationProvider"/>
-    </security:authentication-manager>
+    </security:authentication-manager>-->
+    <bean id="authenticationManager" class="org.springframework.security.providers.ProviderManager">
+        <property name="providers">
+            <list>
+                <ref local="samlAuthenticationProvider" />                
+            </list>
+        </property>
+    </bean>
+
 
     <bean id="samlProcessingFilter" class="org.springframework.security.saml.SAMLProcessingFilter">
         <property name="authenticationManager" ref="authenticationManager"/>
-        <property name="authenticationSuccessHandler" ref="successRedirectHandler"/>
+        <property name="sAMLProcessor" ref="processor" />
+        <property name="contextProvider" ref="contextProvider" />
+        <!--<property name="authenticationSuccessHandler" ref="successRedirectHandler"/>-->
+
     </bean>
 
-    <bean id="successRedirectHandler"
+    <!--<bean id="successRedirectHandler"
           class="org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler">
         <property name="defaultTargetUrl" value="/"/>
-    </bean>
+    </bean>-->
 
     <bean id="samlLogoutProcessingFilter" class="org.springframework.security.saml.SAMLLogoutProcessingFilter">
-        <constructor-arg ref="successLogoutHandler"/>
+        <constructor-arg value="/"/>
         <constructor-arg ref="logoutHandler"/>
     </bean>
 
-    <!-- Handler for successful logout -->
+    <!-- Handler for successful logout 
     <bean id="successLogoutHandler"
           class="org.springframework.security.web.authentication.logout.SimpleUrlLogoutSuccessHandler">
         <property name="defaultTargetUrl" value="/"/>
-    </bean>
+    </bean>-->
 
     <bean id="logoutHandler"
-          class="org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler">
+          class="org.springframework.security.ui.logout.SecurityContextLogoutHandler">
         <property name="invalidateHttpSession" value="false"/>
     </bean>
 
@@ -79,10 +91,15 @@
     <bean class="org.springframework.security.saml.SAMLBootstrap"/>
 
     <!-- Class is capable of generating SP metadata describing the currently running environnment -->
-    <bean id="metadataGenerator" class="org.springframework.security.saml.metadata.MetadataGenerator"/>
+    <bean id="metadataGenerator" class="org.springframework.security.saml.metadata.MetadataGenerator">
+        <property name="keyManager" ref="keyManager" />
+    </bean>
 
     <!-- SAML 2.0 Web SSO profile -->
-    <bean id="webSSOprofile" class="org.springframework.security.saml.websso.WebSSOProfileImpl"/>
+    <bean id="webSSOprofile" class="org.springframework.security.saml.websso.WebSSOProfileImpl">
+        <property name="metadata" ref="metadata" />
+        <property name="processor" ref="processor" />
+    </bean>
 
     <!-- Class loading incoming SAML messages from httpRequest stream -->
     <bean id="processor" class="org.springframework.security.saml.processor.SAMLProcessorImpl">
@@ -101,20 +118,38 @@
     <bean id="samlLogger" class="org.springframework.security.saml.log.SAMLDefaultLogger"/>
 
     <!-- Provider of default SAML Context -->
-    <bean id="contextProvider" class="org.springframework.security.saml.context.SAMLContextProviderImpl"/>
+    <bean id="contextProvider" class="org.springframework.security.saml.context.SAMLContextProviderImpl">
+        <property name="keyManager" ref="keyManager" />
+        <property name="metadata" ref="metadata" />
+    </bean>
 
     <!-- Factory which disables message storage capabilities -->
     <bean class="org.springframework.security.saml.storage.EmptyStorageFactory"/>
 
     <bean id="samlAuthenticationProvider" class="org.springframework.security.saml.SAMLAuthenticationProvider">
+        <property name="consumer" ref="webSSOprofileConsumer" />
+        <property name="hokConsumer" ref="hokWebSSOprofileConsumer" />
+        <property name="samlLogger" ref="samlLogger" />
     </bean>
 
     <!-- SAML 2.0 Assertion Consumer -->
-    <bean id="webSSOprofileConsumer" class="org.springframework.security.saml.websso.WebSSOProfileConsumerImpl"/>
+    <bean id="webSSOprofileConsumer" class="org.springframework.security.saml.websso.WebSSOProfileConsumerImpl">
+        <property name="metadata" ref="metadata" />
+        <property name="processor" ref="processor" />
+        
+    </bean>
 
-    <bean id="hokWebSSOprofileConsumer" class="org.springframework.security.saml.websso.WebSSOProfileConsumerHoKImpl"/>
+    <bean id="hokWebSSOprofileConsumer" class="org.springframework.security.saml.websso.WebSSOProfileConsumerHoKImpl">
+        <property name="metadata" ref="metadata" />
+        <property name="processor" ref="processor" />
+    </bean>
+
 
     <!-- SAML 2.0 Logout Profile -->
-    <bean id="logoutprofile" class="org.springframework.security.saml.websso.SingleLogoutProfileImpl"/>
+    <bean id="logoutprofile" class="org.springframework.security.saml.websso.SingleLogoutProfileImpl">
+        <property name="metadata" ref="metadata" />
+        <property name="processor" ref="processor" />
+    </bean>
+
 
 </beans>

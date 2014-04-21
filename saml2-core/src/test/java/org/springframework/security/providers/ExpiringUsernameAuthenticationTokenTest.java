@@ -14,15 +14,14 @@
  */
 package org.springframework.security.providers;
 
-import org.joda.time.DateTime;
-import org.junit.Test;
-import org.springframework.security.core.GrantedAuthority;
-
+import java.lang.reflect.Array;
 import java.util.Date;
-import java.util.LinkedList;
+import org.joda.time.DateTime;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import org.junit.Test;
+import org.springframework.security.GrantedAuthority;
 
 /**
  * Test for the ExpiringUsernameAuthenticationToken.
@@ -38,7 +37,7 @@ public class ExpiringUsernameAuthenticationTokenTest {
      */
     @Test
     public void testExpirationNull() throws Exception {
-        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(null, null, null, new LinkedList<GrantedAuthority>());
+        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(null, null, null, (GrantedAuthority[])Array.newInstance(GrantedAuthority.class, 0));
         assertTrue(t.isAuthenticated());
     }
 
@@ -50,7 +49,7 @@ public class ExpiringUsernameAuthenticationTokenTest {
     @Test
     public void testExpirationFuture() throws Exception {
         Date future = new DateTime().plusHours(2).toDate();
-        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(future, null, null, new LinkedList<GrantedAuthority>());
+        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(future, null, null, (GrantedAuthority[])Array.newInstance(GrantedAuthority.class, 0));
         assertTrue(t.isAuthenticated());
     }
 
@@ -62,7 +61,7 @@ public class ExpiringUsernameAuthenticationTokenTest {
     @Test
     public void testExpirationFutureChange() throws Exception {
         Date future = new DateTime().plusMillis(1000).toDate();
-        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(future, null, null, new LinkedList<GrantedAuthority>());
+        ExpiringUsernameAuthenticationToken t = new ExpiringUsernameAuthenticationToken(future, null, null, (GrantedAuthority[])Array.newInstance(GrantedAuthority.class, 0));
         assertTrue(t.isAuthenticated());
         synchronized (this) {
             wait(1000);
