@@ -146,7 +146,7 @@ public class SAMLLogoutProcessingFilter extends LogoutFilter {
                     logoutProfile.processLogoutResponse(context);
 
                     log.debug("Performing local logout after receiving logout response from {}", context.getPeerEntityId());
-                    super.doFilter(request, response, chain);
+                    super.doFilterHttp(request, response, chain);
 
                     samlLogger.log(SAMLConstants.LOGOUT_RESPONSE, SAMLConstants.SUCCESS, context);
 

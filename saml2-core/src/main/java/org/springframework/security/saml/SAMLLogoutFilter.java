@@ -42,9 +42,10 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 /**
- * Logout filter leveraging SAML 2.0 Single Logout profile. Upon invocation of the filter URL it is
- * determined whether global (termination of all participating sessions) or local (termination of only
- * session running within Spring Security) logout is requested based on request attribute.
+ * Logout filter leveraging SAML 2.0 Single Logout profile. Upon invocation of
+ * the filter URL it is determined whether global (termination of all
+ * participating sessions) or local (termination of only session running within
+ * Spring Security) logout is requested based on request attribute.
  * <p/>
  * In case global logout is in question a LogoutRequest is sent to the IDP.
  *
@@ -55,10 +56,12 @@ public class SAMLLogoutFilter extends LogoutFilter {
     protected SingleLogoutProfile profile;
     protected SAMLLogger samlLogger;
     protected SAMLContextProvider contextProvider;
+    
 
     /**
-     * Name of parameter of HttpRequest indicating whether this call should perform only local logout.
-     * In case the value is true no global logout will be invoked.
+     * Name of parameter of HttpRequest indicating whether this call should
+     * perform only local logout. In case the value is true no global logout
+     * will be invoked.
      */
     protected static final String LOGOUT_PARAMETER = "local";
 
@@ -75,9 +78,10 @@ public class SAMLLogoutFilter extends LogoutFilter {
     /**
      * Default constructor.
      *
-     * @param successUrl     url to use after logout in case of local logout
-     * @param localHandler   handlers to be invoked when local logout is selected
-     * @param globalHandlers handlers to be invoked when global logout is selected
+     * @param successUrl url to use after logout in case of local logout
+     * @param localHandler handlers to be invoked when local logout is selected
+     * @param globalHandlers handlers to be invoked when global logout is
+     * selected
      */
     public SAMLLogoutFilter(String successUrl, LogoutHandler[] localHandler, LogoutHandler[] globalHandlers) {
         super(successUrl, localHandler);
@@ -89,15 +93,15 @@ public class SAMLLogoutFilter extends LogoutFilter {
      * Default constructor.
      *
      * @param logoutSuccessHandler handler to invoke upon successful logout
-     * @param localHandler         handlers to be invoked when local logout is selected
-     * @param globalHandlers       handlers to be invoked when global logout is selected
+     * @param localHandler handlers to be invoked when local logout is selected
+     * @param globalHandlers handlers to be invoked when global logout is
+     * selected
      */
     /*public SAMLLogoutFilter(LogoutSuccessHandler logoutSuccessHandler, LogoutHandler[] localHandler, LogoutHandler[] globalHandlers) {
-        super(logoutSuccessHandler, localHandler);
-        this.globalHandlers = globalHandlers;
-        this.setFilterProcessesUrl(FILTER_URL);
-    }*/
-
+     super(logoutSuccessHandler, localHandler);
+     this.globalHandlers = globalHandlers;
+     this.setFilterProcessesUrl(FILTER_URL);
+     }*/
     @Override
     public void doFilterHttp(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
         //FilterInvocation fi = new FilterInvocation(request, response, chain);
@@ -105,14 +109,15 @@ public class SAMLLogoutFilter extends LogoutFilter {
     }
 
     /**
-     * In case request parameter of name "local" is set to true or there is no authenticated user
-     * only local logout will be performed and user will be redirected to the success page.
-     * Otherwise global logout procedure is initialized.
+     * In case request parameter of name "local" is set to true or there is no
+     * authenticated user only local logout will be performed and user will be
+     * redirected to the success page. Otherwise global logout procedure is
+     * initialized.
      *
-     * @param request  http request
+     * @param request http request
      * @param response http response
-     * @param chain    chain
-     * @throws IOException      error
+     * @param chain chain
+     * @throws IOException error
      * @throws ServletException error
      */
     public void processLogout(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
@@ -142,7 +147,22 @@ public class SAMLLogoutFilter extends LogoutFilter {
 
                 } else {
 
-                    super.doFilter(request, response, chain);
+                    if (requiresLogout(request, response)) {
+                        
+                        /*if (logger.isDebugEnabled()) {
+                            logger.debug("Logging out user '" + auth + "' and transferring to logout destination");
+                        }*/
+
+                        for (LogoutHandler handler : globalHandlers) {
+                            handler.logout(request, response, auth);
+                        }
+
+                        //logoutSuccessHandler.onLogoutSuccess(request, response, auth);
+
+                        return;
+                    }
+
+                    chain.doFilter(request, response);
 
                 }
 
@@ -165,7 +185,8 @@ public class SAMLLogoutFilter extends LogoutFilter {
     }
 
     /**
-     * The filter will be used in case the URL of the request contains the DEFAULT_FILTER_URL.
+     * The filter will be used in case the URL of the request contains the
+     * DEFAULT_FILTER_URL.
      *
      * @param request request used to determine whether to enable this filter
      * @return true if this filter should be used
@@ -176,10 +197,11 @@ public class SAMLLogoutFilter extends LogoutFilter {
     }
 
     /**
-     * Performs global logout in case current user logged in using SAML and user hasn't selected local logout only
+     * Performs global logout in case current user logged in using SAML and user
+     * hasn't selected local logout only
      *
      * @param request request
-     * @param auth    currently logged in user
+     * @param auth currently logged in user
      * @return true if single logout with IDP is required
      */
     protected boolean isGlobalLogout(HttpServletRequest request, Authentication auth) {
@@ -187,7 +209,7 @@ public class SAMLLogoutFilter extends LogoutFilter {
         return (login == null || !"true".equals(login.toLowerCase().trim())) && (auth.getCredentials() instanceof SAMLCredential);
     }
 
-     /**
+    /**
      * Logger for SAML events, cannot be null, must be set.
      *
      * @param samlLogger logger
@@ -199,7 +221,8 @@ public class SAMLLogoutFilter extends LogoutFilter {
     }
 
     /**
-     * Profile for consumption of processed messages, cannot be null, must be set.
+     * Profile for consumption of processed messages, cannot be null, must be
+     * set.
      *
      * @param profile profile
      */
@@ -210,7 +233,8 @@ public class SAMLLogoutFilter extends LogoutFilter {
     }
 
     /**
-     * Sets entity responsible for populating local entity context data. Cannot be null, must be set.
+     * Sets entity responsible for populating local entity context data. Cannot
+     * be null, must be set.
      *
      * @param contextProvider provider implementation
      */
