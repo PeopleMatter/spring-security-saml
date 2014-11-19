@@ -15,10 +15,8 @@
 package org.springframework.security.saml.metadata;
 
 import org.opensaml.Configuration;
-import org.opensaml.common.SAMLObject;
 import org.opensaml.common.SAMLObjectBuilder;
 import org.opensaml.common.SAMLRuntimeException;
-import org.opensaml.common.SignableSAMLObject;
 import org.opensaml.common.xml.SAMLConstants;
 import org.opensaml.saml2.common.Extensions;
 import org.opensaml.saml2.common.impl.ExtensionsBuilder;
@@ -27,20 +25,12 @@ import org.opensaml.saml2.core.NameIDType;
 import org.opensaml.saml2.metadata.*;
 import org.opensaml.samlext.idpdisco.DiscoveryResponse;
 import org.opensaml.util.URLBuilder;
-import org.opensaml.ws.message.encoder.MessageEncodingException;
-import org.opensaml.xml.XMLObjectBuilder;
 import org.opensaml.xml.XMLObjectBuilderFactory;
-import org.opensaml.xml.io.Marshaller;
-import org.opensaml.xml.io.MarshallingException;
 import org.opensaml.xml.security.SecurityHelper;
 import org.opensaml.xml.security.credential.Credential;
 import org.opensaml.xml.security.credential.UsageType;
-import org.opensaml.xml.security.keyinfo.KeyInfoGeneratorFactory;
-import org.opensaml.xml.security.keyinfo.NamedKeyInfoGeneratorManager;
+import org.opensaml.xml.security.keyinfo.KeyInfoGenerator;
 import org.opensaml.xml.signature.KeyInfo;
-import org.opensaml.xml.signature.Signature;
-import org.opensaml.xml.signature.SignatureException;
-import org.opensaml.xml.signature.Signer;
 import org.opensaml.xml.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,17 +55,19 @@ public class MetadataGenerator {
     private String id;
     private String entityId;
     private String entityBaseURL;
-    private String entityAlias;
 
     private boolean requestSigned = true;
     private boolean wantAssertionSigned = true;
-    private boolean signMetadata = true;
 
-    private String signingKey = null;
-    private String encryptionKey = null;
-    private String tlsKey = null;
-
+    /**
+     * Index of the assertion consumer endpoint marked as default.
+     */
     private int assertionConsumerIndex = 0;
+
+    /**
+     * Extended metadata with details on metadata generation.
+     */
+    private ExtendedMetadata extendedMetadata;
 
     // List of case-insensitive alias terms
     private static TreeMap<String, String> aliases = new TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER);
@@ -105,25 +97,34 @@ public class MetadataGenerator {
         aliases.put("x509_subject", NameIDType.X509_SUBJECT);
     }
 
-    private Collection<String> bindingsSSO = Arrays.asList("artifact", "post", "paos");
-    private Collection<String> bindingsHoKSSO = Arrays.asList("artifact", "post");
+    /**
+     * Bindings for single sign-on
+     */
+    private Collection<String> bindingsSSO = Arrays.asList("post", "artifact");
+
+    /**
+     * Bindings for single sign-on holder of key
+     */
+    private Collection<String> bindingsHoKSSO = Arrays.asList();
+
+    /**
+     * Bindings for single logout
+     */
     private Collection<String> bindingsSLO = Arrays.asList("post", "redirect");
 
-    @Deprecated
-    private boolean includeDiscovery = true;
-
-    @Deprecated
-    private String customDiscoveryURL;
-
-    @Deprecated
-    private String customDiscoveryResponseURL;
-
+    /**
+     * Flag indicates whether to include extension with discovery endpoints in metadata.
+     */
     private boolean includeDiscoveryExtension;
 
-    private ExtendedMetadata extendedMetadata;
-
+    /**
+     * NameIDs to be included in generated metadata.
+     */
     private Collection<String> nameID = null;
 
+    /**
+     * Default set of NameIDs included in metadata.
+     */
     public static final Collection<String> defaultNameID = Arrays.asList(
             NameIDType.EMAIL,
             NameIDType.TRANSIENT,
@@ -134,6 +135,9 @@ public class MetadataGenerator {
 
     protected XMLObjectBuilderFactory builderFactory;
 
+    /**
+     * Source of certificates.
+     */
     protected KeyManager keyManager;
 
     /**
@@ -159,19 +163,8 @@ public class MetadataGenerator {
 
     public EntityDescriptor generateMetadata() {
 
-        if (signingKey == null) {
-            signingKey = keyManager.getDefaultCredentialName();
-        }
-        if (encryptionKey == null) {
-            encryptionKey = keyManager.getDefaultCredentialName();
-        }
-        if (tlsKey == null) {
-            tlsKey = null;
-        }
-
         boolean requestSigned = isRequestSigned();
         boolean assertionSigned = isWantAssertionSigned();
-        boolean signMetadata = isSignMetadata();
 
         Collection<String> includedNameID = getNameID();
 
@@ -179,9 +172,7 @@ public class MetadataGenerator {
         String entityBaseURL = getEntityBaseURL();
         String entityAlias = getEntityAlias();
 
-        if (entityId == null || entityBaseURL == null) {
-            throw new RuntimeException("Required attributes weren't set");
-        }
+        validateRequiredAttributes(entityId, entityBaseURL);
 
         if (id == null) {
             // Use entityID cleaned as NCName for ID in case no value is provided
@@ -194,20 +185,20 @@ public class MetadataGenerator {
             descriptor.setID(id);
         }
         descriptor.setEntityID(entityId);
-        descriptor.getRoleDescriptors().add(buildSPSSODescriptor(entityBaseURL, entityAlias, requestSigned, assertionSigned, includedNameID));
 
-        try {
-            if (signMetadata) {
-                signSAMLObject(descriptor, keyManager.getCredential(signingKey));
-            } else {
-                marshallSAMLObject(descriptor);
-            }
-        } catch (MessageEncodingException e) {
-            throw new RuntimeException(e);
+        SPSSODescriptor ssoDescriptor = buildSPSSODescriptor(entityBaseURL, entityAlias, requestSigned, assertionSigned, includedNameID);
+        if (ssoDescriptor != null) {
+            descriptor.getRoleDescriptors().add(ssoDescriptor);
         }
 
         return descriptor;
 
+    }
+
+    protected void validateRequiredAttributes(String entityId, String entityBaseURL) {
+        if (entityId == null || entityBaseURL == null) {
+            throw new RuntimeException("Required attributes entityId or entityBaseURL weren't set");
+        }
     }
 
     protected KeyInfo getServerKeyInfo(String alias) {
@@ -241,8 +232,6 @@ public class MetadataGenerator {
         String entityBaseURL = getEntityBaseURL();
         String entityAlias = getEntityAlias();
 
-        metadata.setIdpDiscoveryEnabled(isIncludeDiscovery());
-
         if (isIncludeDiscovery()) {
             metadata.setIdpDiscoveryURL(getDiscoveryURL(entityBaseURL, entityAlias));
             metadata.setIdpDiscoveryResponseURL(getDiscoveryResponseURL(entityBaseURL, entityAlias));
@@ -251,10 +240,6 @@ public class MetadataGenerator {
             metadata.setIdpDiscoveryResponseURL(null);
         }
 
-        metadata.setEncryptionKey(encryptionKey);
-        metadata.setSigningKey(signingKey);
-        metadata.setAlias(entityAlias);
-        metadata.setTlsKey(tlsKey);
         metadata.setLocal(true);
 
         return metadata;
@@ -263,12 +248,14 @@ public class MetadataGenerator {
 
     protected KeyInfo generateKeyInfoForCredential(Credential credential) {
         try {
-            NamedKeyInfoGeneratorManager manager = Configuration.getGlobalSecurityConfiguration().getKeyInfoGeneratorManager();
-            SecurityHelper.getKeyInfoGenerator(credential, null, getKeyInfoGeneratorName());
-            KeyInfoGeneratorFactory factory = manager.getDefaultManager().getFactory(credential);
-            return factory.newInstance().generate(credential);
+            String keyInfoGeneratorName = org.springframework.security.saml.SAMLConstants.SAML_METADATA_KEY_INFO_GENERATOR;
+            if (extendedMetadata != null && extendedMetadata.getKeyInfoGeneratorName() != null) {
+                keyInfoGeneratorName = extendedMetadata.getKeyInfoGeneratorName();
+            }
+            KeyInfoGenerator keyInfoGenerator = SecurityHelper.getKeyInfoGenerator(credential, null, keyInfoGeneratorName);
+            return keyInfoGenerator.generate(credential);
         } catch (org.opensaml.xml.security.SecurityException e) {
-            log.error("Can't obtain key from the keystore or generate key info: " + encryptionKey, e);
+            log.error("Can't obtain key from the keystore or generate key info for credential: " + credential, e);
             throw new SAMLRuntimeException("Can't obtain key from keystore or generate key info", e);
         }
     }
@@ -331,6 +318,11 @@ public class MetadataGenerator {
         if (extensions != null) {
             spDescriptor.setExtensions(extensions);
         }
+
+        // Populate key aliases
+        String signingKey = getSigningKey();
+        String encryptionKey = getEncryptionKey();
+        String tlsKey = getTLSKey();
 
         // Generate key info
         if (signingKey != null) {
@@ -502,16 +494,17 @@ public class MetadataGenerator {
      */
     private String getServerURL(String entityBaseURL, String entityAlias, String processingURL, Map<String, String> parameters) {
 
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         result.append(entityBaseURL);
         if (!processingURL.startsWith("/")) {
             result.append("/");
         }
         result.append(processingURL);
-        if (!processingURL.endsWith("/")) {
-            result.append("/");
-        }
+
         if (entityAlias != null) {
+            if (!processingURL.endsWith("/")) {
+                result.append("/");
+            }
             result.append("alias/");
             result.append(entityAlias);
         }
@@ -597,69 +590,6 @@ public class MetadataGenerator {
         this.samlEntryPoint = samlEntryPoint;
     }
 
-    /**
-     * Signs the given SAML message if it a {@link org.opensaml.common.SignableSAMLObject} and this encoder has signing credentials.
-     *
-     * @param signableObject    object to sign
-     * @param signingCredential credential to sign with
-     * @throws org.opensaml.ws.message.encoder.MessageEncodingException
-     *          thrown if there is a problem marshalling or signing the outbound message
-     */
-    @SuppressWarnings("unchecked")
-    protected void signSAMLObject(SAMLObject signableObject, Credential signingCredential) throws MessageEncodingException {
-
-        if (signableObject instanceof SignableSAMLObject && signingCredential != null) {
-            SignableSAMLObject signableMessage = (SignableSAMLObject) signableObject;
-
-            XMLObjectBuilder<Signature> signatureBuilder = Configuration.getBuilderFactory().getBuilder(
-                    Signature.DEFAULT_ELEMENT_NAME);
-            Signature signature = signatureBuilder.buildObject(Signature.DEFAULT_ELEMENT_NAME);
-
-            signature.setSigningCredential(signingCredential);
-            try {
-                SecurityHelper.prepareSignatureParams(signature, signingCredential, null, getKeyInfoGeneratorName());
-            } catch (org.opensaml.xml.security.SecurityException e) {
-                throw new MessageEncodingException("Error preparing signature for signing", e);
-            }
-
-            signableMessage.setSignature(signature);
-            marshallSAMLObject(signableMessage);
-
-            try {
-                Signer.signObject(signature);
-            } catch (SignatureException e) {
-                log.error("Unable to sign protocol message", e);
-                throw new MessageEncodingException("Unable to sign protocol message", e);
-            }
-
-        }
-    }
-
-    private void marshallSAMLObject(SAMLObject samlObject) throws MessageEncodingException {
-        try {
-            Marshaller marshaller = Configuration.getMarshallerFactory().getMarshaller(samlObject);
-            if (marshaller == null) {
-                throw new MessageEncodingException("No marshaller registered for "
-                        + samlObject.getElementQName() + ", unable to marshall in preperation for signing");
-            }
-            marshaller.marshall(samlObject);
-        } catch (MarshallingException e) {
-            log.error("Unable to marshall protocol message in preparation for signing", e);
-            throw new MessageEncodingException("Unable to marshall protocol message in preparation for signing", e);
-        }
-    }
-
-    /**
-     * Name of the KeyInfoGenerator registered at default KeyInfoGeneratorManager.
-     *
-     * @return key info generator name
-     * @see Configuration#getGlobalSecurityConfiguration()
-     * @see org.opensaml.xml.security.SecurityConfiguration#getKeyInfoGeneratorManager()
-     */
-    protected String getKeyInfoGeneratorName() {
-        return org.springframework.security.saml.SAMLConstants.SAML_METADATA_KEY_INFO_GENERATOR;
-    }
-
     public boolean isRequestSigned() {
         return requestSigned;
     }
@@ -676,14 +606,6 @@ public class MetadataGenerator {
         this.wantAssertionSigned = wantAssertionSigned;
     }
 
-    public boolean isSignMetadata() {
-        return signMetadata;
-    }
-
-    public void setSignMetadata(boolean signMetadata) {
-        this.signMetadata = signMetadata;
-    }
-
     public Collection<String> getNameID() {
         return nameID == null ? defaultNameID : nameID;
     }
@@ -696,14 +618,6 @@ public class MetadataGenerator {
         return entityBaseURL;
     }
 
-    public String getEntityAlias() {
-        return entityAlias;
-    }
-
-    public void setEntityAlias(String entityAlias) {
-        this.entityAlias = entityAlias;
-    }
-
     public void setEntityBaseURL(String entityBaseURL) {
         this.entityBaseURL = entityBaseURL;
     }
@@ -711,14 +625,6 @@ public class MetadataGenerator {
     @Autowired
     public void setKeyManager(KeyManager keyManager) {
         this.keyManager = keyManager;
-    }
-
-    public void setSigningKey(String signingKey) {
-        this.signingKey = signingKey;
-    }
-
-    public void setEncryptionKey(String encryptionKey) {
-        this.encryptionKey = encryptionKey;
     }
 
     public void setId(String id) {
@@ -737,18 +643,21 @@ public class MetadataGenerator {
         return entityId;
     }
 
-    public String getTlsKey() {
-        return tlsKey;
-    }
-
-    public void setTlsKey(String tlsKey) {
-        this.tlsKey = tlsKey;
-    }
-
     public Collection<String> getBindingsSSO() {
         return bindingsSSO;
     }
 
+    /**
+     * List of bindings to be included in the generated metadata for Web Single Sign-On.
+     * Ordering of bindings affects inclusion in the generated metadata.
+     *
+     * Supported values are: "artifact" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact"),
+     * "post" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST") and "paos" (or "urn:oasis:names:tc:SAML:2.0:bindings:PAOS").
+     *
+     * The following bindings are included by default: "artifact", "post"
+     *
+     * @param bindingsSSO bindings for web single sign-on
+     */
     public void setBindingsSSO(Collection<String> bindingsSSO) {
         if (bindingsSSO == null) {
             this.bindingsSSO = Collections.emptyList();
@@ -761,6 +670,17 @@ public class MetadataGenerator {
         return bindingsSLO;
     }
 
+    /**
+     * List of bindings to be included in the generated metadata for Single Logout.
+     * Ordering of bindings affects inclusion in the generated metadata.
+     *
+     * Supported values are: "post" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST") and
+     * "redirect" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect").
+     *
+     * The following bindings are included by default: "post", "redirect"
+     *
+     * @param bindingsSLO bindings for single logout
+     */
     public void setBindingsSLO(Collection<String> bindingsSLO) {
         if (bindingsSLO == null) {
             this.bindingsSLO = Collections.emptyList();
@@ -773,6 +693,17 @@ public class MetadataGenerator {
         return bindingsHoKSSO;
     }
 
+    /**
+     * List of bindings to be included in the generated metadata for Web Single Sign-On Holder of Key.
+     * Ordering of bindings affects inclusion in the generated metadata.
+     *
+     * Supported values are: "artifact" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact") and
+     * "post" (or "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST").
+     *
+     * By default there are no included bindings for the profile.
+     *
+     * @param bindingsHoKSSO bindings for web single sign-on holder-of-key
+     */
     public void setBindingsHoKSSO(Collection<String> bindingsHoKSSO) {
         if (bindingsHoKSSO == null) {
             this.bindingsHoKSSO = Collections.emptyList();
@@ -795,32 +726,13 @@ public class MetadataGenerator {
         this.includeDiscoveryExtension = includeDiscoveryExtension;
     }
 
-    /**
-     * When true system will also automatically generate discoveryRequest and discoveryResponse addresses or
-     * use values provided as customDiscoveryUrl and customDiscoveryResponseUrl and store them to the extended metadata.
-     *
-     * @param includeDiscovery true when user should be redirected to discovery service during SSO initialization
-     */
-    public void setIncludeDiscovery(boolean includeDiscovery) {
-        this.includeDiscovery = includeDiscovery;
-    }
-
-    /**
-     * True when IDP discovery is enabled either on local property includeDiscovery or property idpDiscoveryEnabled
-     * in the extended metadata.
-     *
-     * @return true when discovery is enabled
-     */
-    public boolean isIncludeDiscovery() {
-        return includeDiscovery || (extendedMetadata != null && extendedMetadata.isIdpDiscoveryEnabled());
-    }
-
     public int getAssertionConsumerIndex() {
         return assertionConsumerIndex;
     }
 
     /**
-     * Generated assertion consumer service with the index equaling set value will be marked as default.
+     * Generated assertion consumer service with the index equaling set value will be marked as default. Use negative
+     * value to skip the default attribute altogether.
      *
      * @param assertionConsumerIndex assertion consumer index of service to mark as default
      */
@@ -829,31 +741,13 @@ public class MetadataGenerator {
     }
 
     /**
-     * Custom value of IDP Discovery request URL to be included in the extended metadata. Only used when
-     * includeDiscovery is set to true.
+     * True when IDP discovery is enabled either on local property includeDiscovery or property idpDiscoveryEnabled
+     * in the extended metadata.
      *
-     * @param customDiscoveryURL custom discovery request URL
+     * @return true when discovery is enabled
      */
-    public void setCustomDiscoveryURL(String customDiscoveryURL) {
-        this.customDiscoveryURL = customDiscoveryURL;
-    }
-
-    public String getCustomDiscoveryURL() {
-        return customDiscoveryURL;
-    }
-
-    /**
-     * Custom value of IDP Discovery response URL to be included in the SP metadata as extension and in extended
-     * metadata. Only used when includeDiscovery is set to true.
-     *
-     * @param customDiscoveryResponseURL custom discovery response URL
-     */
-    public void setCustomDiscoveryResponseURL(String customDiscoveryResponseURL) {
-        this.customDiscoveryResponseURL = customDiscoveryResponseURL;
-    }
-
-    public String getCustomDiscoveryResponseURL() {
-        return customDiscoveryResponseURL;
+    protected boolean isIncludeDiscovery() {
+        return extendedMetadata != null && extendedMetadata.isIdpDiscoveryEnabled();
     }
 
     /**
@@ -862,11 +756,9 @@ public class MetadataGenerator {
      *
      * @return URL to use for IDP discovery request
      */
-    private String getDiscoveryURL(String entityBaseURL, String entityAlias) {
+    protected String getDiscoveryURL(String entityBaseURL, String entityAlias) {
         if (extendedMetadata != null && extendedMetadata.getIdpDiscoveryURL() != null && extendedMetadata.getIdpDiscoveryURL().length() > 0) {
             return extendedMetadata.getIdpDiscoveryURL();
-        } else if (customDiscoveryURL != null && customDiscoveryURL.length() > 0) {
-            return customDiscoveryURL;
         } else {
             return getServerURL(entityBaseURL, entityAlias, getSAMLDiscoveryPath());
         }
@@ -878,11 +770,9 @@ public class MetadataGenerator {
      *
      * @return URL to use for IDP discovery response
      */
-    private String getDiscoveryResponseURL(String entityBaseURL, String entityAlias) {
+    protected String getDiscoveryResponseURL(String entityBaseURL, String entityAlias) {
         if (extendedMetadata != null && extendedMetadata.getIdpDiscoveryResponseURL() != null && extendedMetadata.getIdpDiscoveryResponseURL().length() > 0) {
             return extendedMetadata.getIdpDiscoveryResponseURL();
-        } else if (customDiscoveryResponseURL != null && customDiscoveryResponseURL.length() > 0) {
-            return customDiscoveryResponseURL;
         } else {
             Map<String, String> params = new HashMap<String, String>();
             params.put(SAMLEntryPoint.DISCOVERY_RESPONSE_PARAMETER, "true");
@@ -890,6 +780,63 @@ public class MetadataGenerator {
         }
     }
 
+    /**
+     * Provides key used for signing from extended metadata. Uses default key when key is not specified.
+     *
+     * @return signing key
+     */
+    protected String getSigningKey() {
+        if (extendedMetadata != null && extendedMetadata.getSigningKey() != null) {
+            return extendedMetadata.getSigningKey();
+        } else {
+            return keyManager.getDefaultCredentialName();
+        }
+    }
+
+    /**
+     * Provides key used for encryption from extended metadata. Uses default when key is not specified.
+     *
+     * @return encryption key
+     */
+    protected String getEncryptionKey() {
+        if (extendedMetadata != null && extendedMetadata.getEncryptionKey() != null) {
+            return extendedMetadata.getEncryptionKey();
+        } else {
+            return keyManager.getDefaultCredentialName();
+        }
+    }
+
+    /**
+     * Provides key used for SSL/TLS from extended metadata. Uses null when key is not specified.
+     *
+     * @return tls key
+     */
+    protected String getTLSKey() {
+        if (extendedMetadata != null && extendedMetadata.getTlsKey() != null) {
+            return extendedMetadata.getTlsKey();
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Provides entity alias from extended metadata, or null when metadata isn't specified or contains null.
+     *
+     * @return entity alias
+     */
+    protected String getEntityAlias() {
+        if (extendedMetadata != null) {
+            return extendedMetadata.getAlias();
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Extended metadata which contains details on configuration of the generated service provider metadata.
+     *
+     * @return extended metadata
+     */
     public ExtendedMetadata getExtendedMetadata() {
         return extendedMetadata;
     }

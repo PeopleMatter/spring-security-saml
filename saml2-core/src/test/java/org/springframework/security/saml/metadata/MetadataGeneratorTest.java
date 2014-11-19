@@ -57,6 +57,7 @@ public class MetadataGeneratorTest {
         EntityDescriptor metadata = generator.generateMetadata();
 
         assertEquals("my_entity", metadata.getEntityID());
+        assertEquals("my_entity", metadata.getID());
         SPSSODescriptor spssoDescriptor = metadata.getSPSSODescriptor(SAMLConstants.SAML20P_NS);
         assertNotNull(spssoDescriptor);
 
@@ -65,7 +66,7 @@ public class MetadataGeneratorTest {
         assertNotNull(spssoDescriptor.getExtensions().getUnknownXMLObjects());
         assertTrue(spssoDescriptor.getExtensions().getUnknownXMLObjects().size() == 1);
 
-        assertEquals(5, spssoDescriptor.getAssertionConsumerServices().size());
+        assertEquals(2, spssoDescriptor.getAssertionConsumerServices().size());
         assertEquals(2, spssoDescriptor.getSingleLogoutServices().size());
 
         // Custom bindings
@@ -81,17 +82,49 @@ public class MetadataGeneratorTest {
         List<AssertionConsumerService> assertionConsumerServices = spssoDescriptor.getAssertionConsumerServices();
         assertEquals(2, assertionConsumerServices.size());
         assertEquals(SAMLConstants.SAML2_PAOS_BINDING_URI, assertionConsumerServices.get(0).getBinding());
+        assertEquals("http://localhost/saml/SSO", assertionConsumerServices.get(0).getLocation());
         assertEquals(SAMLConstants.SAML2_POST_BINDING_URI, assertionConsumerServices.get(1).getBinding());
+        assertEquals("http://localhost/saml/SSO", assertionConsumerServices.get(1).getLocation());
         assertEquals(Boolean.TRUE, assertionConsumerServices.get(1).isDefault());
 
         List<SingleLogoutService> logoutServices = spssoDescriptor.getSingleLogoutServices();
         assertEquals(1, logoutServices.size());
         assertEquals(SAMLConstants.SAML2_SOAP11_BINDING_URI, logoutServices.get(0).getBinding());
+        assertEquals("http://localhost/saml/SingleLogout", logoutServices.get(0).getLocation());
 
         List<NameIDFormat> nameID = spssoDescriptor.getNameIDFormats();
         assertEquals(2, nameID.size());
         assertEquals(NameIDType.TRANSIENT, nameID.get(0).getFormat());
         assertEquals(NameIDType.EMAIL, nameID.get(1).getFormat());
+
+    }
+
+
+    /**
+     * Test verifies that metadata with alias can be generated.
+     */
+    @Test
+    public void testGenerateMetadataAlias() {
+
+        generator.setExtendedMetadata(new ExtendedMetadata());
+        generator.setEntityBaseURL("http://localhost");
+        generator.setEntityId("urn:myentity:fi");
+        generator.getExtendedMetadata().setAlias("alias1");
+
+        EntityDescriptor metadata = generator.generateMetadata();
+
+        assertEquals("urn:myentity:fi", metadata.getEntityID());
+        assertEquals("urn_myentity_fi", metadata.getID());
+        SPSSODescriptor spssoDescriptor = metadata.getSPSSODescriptor(SAMLConstants.SAML20P_NS);
+        assertNotNull(spssoDescriptor);
+
+        List<AssertionConsumerService> assertionConsumerServices = spssoDescriptor.getAssertionConsumerServices();
+        assertEquals(2, assertionConsumerServices.size());
+        assertEquals(SAMLConstants.SAML2_POST_BINDING_URI, assertionConsumerServices.get(0).getBinding());
+        assertEquals("http://localhost/saml/SSO/alias/alias1", assertionConsumerServices.get(0).getLocation());
+        assertEquals(Boolean.TRUE, assertionConsumerServices.get(0).isDefault());
+        assertEquals(SAMLConstants.SAML2_ARTIFACT_BINDING_URI, assertionConsumerServices.get(1).getBinding());
+        assertEquals("http://localhost/saml/SSO/alias/alias1", assertionConsumerServices.get(1).getLocation());
 
     }
 
@@ -112,30 +145,6 @@ public class MetadataGeneratorTest {
     }
 
     /**
-     * Verifies that metadata signature is created when requested so.
-     */
-    @Test
-    public void testGenerateMetadataSigning() {
-
-        // Required attributes
-        generator.setEntityBaseURL("http://localhost");
-        generator.setEntityId("my_entity");
-
-        // No signing
-        generator.setSignMetadata(false);
-        EntityDescriptor metadata = generator.generateMetadata();
-        assertNull(metadata.getSignature());
-        assertNotNull(metadata.getDOM());
-
-        // Signing
-        generator.setSignMetadata(true);
-        metadata = generator.generateMetadata();
-        assertNotNull(metadata.getSignature());
-        assertNotNull(metadata.getDOM());
-
-    }
-
-    /**
      * Test verifies that metadata can be generated.
      */
     @Test
@@ -143,8 +152,10 @@ public class MetadataGeneratorTest {
 
         ExtendedMetadata extendedMetadata;
 
-        generator.setEntityAlias("testAlias");
+        generator.setExtendedMetadata(new ExtendedMetadata());
         generator.setEntityBaseURL("http://localhost:8080");
+        generator.getExtendedMetadata().setAlias("testAlias");
+        generator.getExtendedMetadata().setIdpDiscoveryEnabled(true);
 
         // Default generation
         extendedMetadata = generator.generateExtendedMetadata();
@@ -155,7 +166,7 @@ public class MetadataGeneratorTest {
         assertEquals("http://localhost:8080/saml/login/alias/testAlias?disco=true", extendedMetadata.getIdpDiscoveryResponseURL());
 
         // Disabled discovery
-        generator.setIncludeDiscovery(false);
+        generator.getExtendedMetadata().setIdpDiscoveryEnabled(false);
         generator.setIncludeDiscoveryExtension(false);
         extendedMetadata = generator.generateExtendedMetadata();
         assertFalse(extendedMetadata.isIdpDiscoveryEnabled());
@@ -163,15 +174,15 @@ public class MetadataGeneratorTest {
         assertNull(extendedMetadata.getIdpDiscoveryResponseURL());
 
         // Default extended metadata
-        ExtendedMetadata defaultMetadata = new ExtendedMetadata();
-        defaultMetadata.setRequireLogoutResponseSigned(true);
-        generator.setExtendedMetadata(defaultMetadata);
-        generator.setIncludeDiscovery(true);
+        generator.setExtendedMetadata(new ExtendedMetadata());
+        generator.getExtendedMetadata().setRequireLogoutResponseSigned(true);
+        generator.getExtendedMetadata().setIdpDiscoveryEnabled(true);
+        generator.getExtendedMetadata().setIdpDiscoveryResponseURL("http://testDisco.com/response");
         generator.setIncludeDiscoveryExtension(true);
-        generator.setCustomDiscoveryResponseURL("http://testDisco.com/response");
+
         extendedMetadata = generator.generateExtendedMetadata();
         assertTrue(extendedMetadata.isIdpDiscoveryEnabled());
-        assertEquals("http://localhost:8080/saml/discovery/alias/testAlias", extendedMetadata.getIdpDiscoveryURL());
+        assertEquals("http://localhost:8080/saml/discovery", extendedMetadata.getIdpDiscoveryURL());
         assertEquals("http://testDisco.com/response", extendedMetadata.getIdpDiscoveryResponseURL());
         assertTrue(extendedMetadata.isRequireLogoutResponseSigned());
 

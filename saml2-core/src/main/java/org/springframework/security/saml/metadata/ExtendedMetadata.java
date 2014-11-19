@@ -14,6 +14,8 @@
  */
 package org.springframework.security.saml.metadata;
 
+import org.springframework.security.saml.SAMLConstants;
+
 import java.io.Serializable;
 import java.util.Set;
 
@@ -30,7 +32,7 @@ public class ExtendedMetadata implements Serializable, Cloneable {
      * Setting of the value determines whether the entity is deployed locally (hosted on the current installation) or
      * whether it's an entity deployed elsewhere.
      */
-    private boolean local = false;
+    private boolean local;
 
     /**
      * Local alias of the entity used for construction of well-known metadata address and determining target
@@ -41,7 +43,7 @@ public class ExtendedMetadata implements Serializable, Cloneable {
     /**
      * When true IDP discovery will be invoked before SSO. Only valid for local entities.
      */
-    private boolean idpDiscoveryEnabled = false;
+    private boolean idpDiscoveryEnabled;
 
     /**
      * URL of the IDP Discovery service user should be redirected to upon request to determine which IDP to use.
@@ -59,7 +61,7 @@ public class ExtendedMetadata implements Serializable, Cloneable {
      * Indicates whether Enhanced Client/Proxy profile should be used for requests which support it. Only valid for
      * local entities.
      */
-    private boolean ecpEnabled = false;
+    private boolean ecpEnabled;
 
     /**
      * Profile used for trust verification, MetaIOP by default. Only relevant for local entities.
@@ -83,6 +85,23 @@ public class ExtendedMetadata implements Serializable, Cloneable {
     private String signingKey;
 
     /**
+     * Algorithm used for creation of digital signatures of this entity. At the moment only used for metadata signatures.
+     * Only valid for local entities.
+     */
+    private String signingAlgorithm;
+
+    /**
+     * Flag indicating whether to sign metadata for this entity. Only valid for local entities.
+     */
+    private boolean signMetadata;
+
+    /**
+     * Name of generator for KeyInfo elements in metadata and signatures. At the moment only used for metadata signatures.
+     * Only valid for local entities.
+     */
+    private String keyInfoGeneratorName = SAMLConstants.SAML_METADATA_KEY_INFO_GENERATOR;
+
+    /**
      * Key (stored in the local keystore) used for encryption/decryption of messages coming/sent from this entity. For local entities
      * private key must be available, for remote entities only public key is required.
      */
@@ -95,7 +114,7 @@ public class ExtendedMetadata implements Serializable, Cloneable {
     private String tlsKey;
 
     /**
-     * Keys used as anchors for trust verification when PKIX mode is enabled for the local entity. In case no keys are specified
+     * Keys used as anchors for trust verification when PKIX mode is enabled for the local entity. In case value is null
      * all keys in the keyStore will be treated as trusted.
      */
     private Set<String> trustedKeys;
@@ -105,12 +124,21 @@ public class ExtendedMetadata implements Serializable, Cloneable {
      */
     private boolean requireLogoutRequestSigned = true;
 
+    /**
+     * Flag indicating whether incoming LogoutResposne messages must be authenticated.
+     */
     private boolean requireLogoutResponseSigned;
 
     /**
      * If true received artifactResolve messages will require a signature, sent artifactResolve will be signed.
      */
     private boolean requireArtifactResolveSigned = true;
+
+    /**
+     * Flag indicating whether to support unsolicited responses (IDP-initialized SSO). Only valid for remote
+     * entities.
+     */
+    private boolean supportUnsolicitedResponse = true;
 
     /**
      * Security profile to use for this local entity - MetaIOP (default) or PKIX.
@@ -347,7 +375,8 @@ public class ExtendedMetadata implements Serializable, Cloneable {
 
     /**
      * Trusted keys usable for signature and server SSL/TLS verification for entities with PKIX verification enabled.
-     * Value is ignored when PKIX security is not enabled.
+     * Value is ignored when PKIX security is not enabled. In case value is null all keys in the keyStore will be
+     * treated as trusted.
      *
      * @return trusted keys
      */
@@ -428,6 +457,102 @@ public class ExtendedMetadata implements Serializable, Cloneable {
 
     public boolean isEcpEnabled() {
         return ecpEnabled;
+    }
+
+    /**
+     * Gets the signing algorithm to use when signing the SAML messages.
+     * This can be used, for example, when a strong algorithm is required (e.g. SHA 256 instead of SHA 128).
+     *
+     * Value only applies to local entities.
+     *
+     * At the moment the value is only used for signatures on metadata.
+     *
+     * @return A signing algorithm URI, if set. Otherwise returns null.
+     * @see org.opensaml.xml.signature.SignatureConstants
+     */
+    public String getSigningAlgorithm() {
+        return signingAlgorithm;
+    }
+
+    /**
+     * Sets the signing algorithm to use when signing the SAML messages.
+     * This can be used, for example, when a strong algorithm is required (e.g. SHA 256 instead of SHA 128).
+     * If this property is null, then the {@link org.opensaml.xml.security.credential.Credential} default algorithm will be used instead.
+     *
+     * Value only applies to local entities.
+     *
+     * At the moment the value is only used for signatures on metadata.
+     *
+     * Typical values are:
+     * http://www.w3.org/2000/09/xmldsig#rsa-sha1
+     * http://www.w3.org/2001/04/xmldsig-more#rsa-sha256
+     * http://www.w3.org/2001/04/xmldsig-more#rsa-sha512
+     *
+     * @param signingAlgorithm The new signing algorithm to use
+     * @see org.opensaml.xml.signature.SignatureConstants
+     */
+    public void setSigningAlgorithm(String signingAlgorithm) {
+        this.signingAlgorithm = signingAlgorithm;
+    }
+
+    /**
+     * Sets KeyInfoGenerator used to create KeyInfo elements in metadata and digital signatures. Only valid
+     * for local entities.
+     *
+     * @param keyInfoGeneratorName generator name
+     */
+    public void setKeyInfoGeneratorName(String keyInfoGeneratorName) {
+        this.keyInfoGeneratorName = keyInfoGeneratorName;
+    }
+
+    /**
+     * Name of the KeyInfoGenerator registered at default KeyInfoGeneratorManager. Used to generate
+     * KeyInfo elements in metadata and signatures.
+     *
+     * @return key info generator name
+     * @see org.opensaml.Configuration#getGlobalSecurityConfiguration()
+     * @see org.opensaml.xml.security.SecurityConfiguration#getKeyInfoGeneratorManager()
+     */
+    public String getKeyInfoGeneratorName() {
+        return keyInfoGeneratorName;
+    }
+
+    /**
+     * Flag indicating whether local metadata will be digitally signed.
+     *
+     * @return metadata signing flag
+     */
+    public boolean isSignMetadata() {
+        return signMetadata;
+    }
+
+    /**
+     * When set to true metadata generated for this entity will be digitally signed by the signing certificate.
+     * Only applies to local entities.
+     *
+     * @param signMetadata metadata signing flag
+     */
+    public void setSignMetadata(boolean signMetadata) {
+        this.signMetadata = signMetadata;
+    }
+
+    /**
+     * @return true when system should accept unsolicited response messages from this remote entity
+     */
+    public boolean isSupportUnsolicitedResponse() {
+        return supportUnsolicitedResponse;
+    }
+
+    /**
+     * When set to true system will support reception of Unsolicited SAML Response messages (IDP-initialized single
+     * sign-on) from this remote entity. When disabled such messages will be rejected.
+     *
+     * Unsolicited Responses are by default enabled.
+     *
+     * @param supportUnsolicitedResponse unsolicited response flag
+     */
+    public void setSupportUnsolicitedResponse(boolean supportUnsolicitedResponse) {
+        this.supportUnsolicitedResponse = supportUnsolicitedResponse;
     }
 
     /**

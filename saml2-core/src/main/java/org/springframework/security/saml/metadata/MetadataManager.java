@@ -29,6 +29,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.saml.key.KeyManager;
 import org.springframework.security.saml.trust.AllowAllSignatureTrustEngine;
+import org.springframework.security.saml.trust.httpclient.TLSProtocolConfigurer;
 import org.springframework.security.saml.util.SAMLUtil;
 import org.springframework.util.Assert;
 
@@ -602,7 +603,12 @@ public class MetadataManager extends ChainingMetadataProvider implements Extende
         List<X509Certificate> certificates = new LinkedList<X509Certificate>();
         for (String key : trustedKeys) {
             log.debug("Adding PKIX trust anchor {} for metadata verification of provider {}", key, provider);
-            certificates.add(keyManager.getCertificate(key));
+            X509Certificate certificate = keyManager.getCertificate(key);
+            if (certificate != null) {
+                certificates.add(certificate);
+            } else {
+                log.warn("Cannot construct PKIX trust anchor for key with alias {} for provider {}, key isn't included in the keystore", key, provider);
+            }
         }
 
         List<PKIXValidationInformation> info = new LinkedList<PKIXValidationInformation>();
@@ -1046,6 +1052,11 @@ public class MetadataManager extends ChainingMetadataProvider implements Extende
     @Autowired
     public void setKeyManager(KeyManager keyManager) {
         this.keyManager = keyManager;
+    }
+
+    @Autowired(required = false)
+    public void setTLSConfigurer(TLSProtocolConfigurer configurer) {
+        // Only explicit dependency
     }
 
 }

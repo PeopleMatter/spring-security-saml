@@ -27,6 +27,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.security.CredentialsExpiredException;
 import org.springframework.security.InsufficientAuthenticationException;
+import org.springframework.security.saml.SAMLCredential;
 import org.springframework.security.saml.SAMLTestHelper;
 import org.springframework.security.saml.context.SAMLContextProvider;
 import org.springframework.security.saml.context.SAMLMessageContext;
@@ -36,9 +37,9 @@ import org.springframework.security.saml.processor.SAMLProcessor;
 import org.springframework.security.saml.storage.SAMLMessageStorage;
 
 import javax.servlet.http.HttpServletRequest;
-
 import java.util.Arrays;
 
+import static junit.framework.Assert.assertTrue;
 import static org.easymock.EasyMock.*;
 
 /**
@@ -79,11 +80,89 @@ public class WebSSOProfileConsumerImplTest {
         replay(request);
         messageContext = contextProvider.getLocalEntity(request, null);
         messageContext.setLocalEntityEndpoint(assertionConsumerService);
+        messageContext.setPeerEntityMetadata(manager.getEntityDescriptor(manager.getDefaultIDP()));
+        messageContext.setPeerExtendedMetadata(manager.getExtendedMetadata(manager.getDefaultIDP()));
         verify(request);
 
         helper = new WebSSOProfileTestHelper(builderFactory);
-        messageContext.setInboundMessage(helper.getValidResponse());
+        Response response = helper.getValidResponse();
+        messageContext.setInboundSAMLMessage(response);
 
+    }
+
+    /**
+     * Verifies that valid SAML response will pass.
+     *
+     * @throws Exception error
+     */
+    @Test
+    public void testValidResponse() throws Exception {
+        messageContext.setInboundSAMLMessageAuthenticated(true);
+        profile.processAuthenticationResponse(messageContext);
+    }
+
+    /**
+     * Verifies that valid SAML response will process included attributes in all assertions.
+     *
+     * @throws Exception error
+     */
+    @Test
+    public void testValidResponseWithAttributesIncludeAllDisabled() throws Exception {
+        Response validResponse = helper.getValidResponse();
+        validResponse.getAssertions().iterator().next().getAttributeStatements().add(helper.getAttributeStatement("assertion1", "value1"));
+        Assertion attributeAssertion = helper.getValidAssertion();
+        attributeAssertion.getAttributeStatements().add(helper.getAttributeStatement("assertion2", "value2"));
+        validResponse.getAssertions().add(attributeAssertion);
+        messageContext.setInboundSAMLMessage(validResponse);
+        messageContext.setInboundSAMLMessageAuthenticated(true);
+        SAMLCredential samlCredential = profile.processAuthenticationResponse(messageContext);
+        assertTrue(samlCredential.getAttributes().size() == 1);
+    }
+
+    /**
+     * Verifies that valid SAML response will process included attributes in all assertions.
+     *
+     * @throws Exception error
+     */
+    @Test
+    public void testValidResponseWithAttributesIncludeAll() throws Exception {
+        Response validResponse = helper.getValidResponse();
+        validResponse.getAssertions().iterator().next().getAttributeStatements().add(helper.getAttributeStatement("assertion1", "value1"));
+        Assertion attributeAssertion = helper.getValidAssertion();
+        attributeAssertion.getAttributeStatements().add(helper.getAttributeStatement("assertion2", "value2"));
+        validResponse.getAssertions().add(attributeAssertion);
+        messageContext.setInboundSAMLMessage(validResponse);
+        messageContext.setInboundSAMLMessageAuthenticated(true);
+        profile.setIncludeAllAttributes(true);
+        SAMLCredential samlCredential = profile.processAuthenticationResponse(messageContext);
+        assertTrue(samlCredential.getAttributes().size() == 2);
+    }
+
+    /**
+     * Verifies that processing of Response without authnStatement will fail.
+     *
+     * @throws Exception error
+     */
+    @Test(expected = SAMLException.class)
+    public void testMissingAuthnStatement() throws Exception {
+        Response validResponse = helper.getValidResponse();
+        validResponse.getAssertions().clear();
+        Assertion validAssertion = helper.getValidAssertion();
+        validAssertion.getAttributeStatements().add(helper.getAttributeStatement("assertion1", "value1"));
+        validResponse.getAssertions().add(validAssertion);
+        messageContext.setInboundSAMLMessage(validResponse);
+        messageContext.setInboundSAMLMessageAuthenticated(true);
+        profile.processAuthenticationResponse(messageContext);
+    }
+
+    /**
+     * Make sure unsigned response will not be successfully processed.
+     *
+     * @throws Exception error
+     */
+    @Test(expected = SAMLException.class)
+    public void testMissingSignature() throws Exception {
+        profile.processAuthenticationResponse(messageContext);
     }
 
     /**
@@ -93,7 +172,7 @@ public class WebSSOProfileConsumerImplTest {
      */
     @Test(expected = SAMLException.class)
     public void testMissingResponse() throws Exception {
-        messageContext.setInboundMessage(null);
+        messageContext.setInboundSAMLMessage(null);
         profile.processAuthenticationResponse(messageContext);
     }
 
@@ -106,7 +185,7 @@ public class WebSSOProfileConsumerImplTest {
     public void testInvalidResponseObject() throws Exception {
         SAMLObjectBuilder<AuthnRequest> builder = (SAMLObjectBuilder<AuthnRequest>) builderFactory.getBuilder(AuthnRequest.DEFAULT_ELEMENT_NAME);
         AuthnRequest authnRequest = builder.buildObject();
-        messageContext.setInboundMessage(authnRequest);
+        messageContext.setInboundSAMLMessage(authnRequest);
         profile.processAuthenticationResponse(messageContext);
     }
 
@@ -184,7 +263,7 @@ public class WebSSOProfileConsumerImplTest {
     }
 
     /**
-     * Verifies that audience restriction passes when localEntityId matches.
+     * Verifies that audience restriction passes when localEntityId matches in at least one Audience (OR matching).
      *
      * @throws Exception error
      */
@@ -192,6 +271,21 @@ public class WebSSOProfileConsumerImplTest {
     public void testCondition_Audience_pass() throws Exception {
         SAMLObjectBuilder<Conditions> builder = (SAMLObjectBuilder<Conditions>) builderFactory.getBuilder(Conditions.DEFAULT_ELEMENT_NAME);
         Conditions conditions = builder.buildObject();
+        conditions.getConditions().add(helper.getAudienceRestriction("anotherURI", messageContext.getLocalEntityId(), "yetAnotherURI"));
+        profile.verifyAssertionConditions(conditions, messageContext, true);
+    }
+
+    /**
+     * Verifies that audience restriction doesn't pass when it matches only one of the AudienceRestriction, but not
+     * the others (AND matching).
+     *
+     * @throws Exception error
+     */
+    @Test(expected = SAMLException.class)
+    public void testCondition_Audience_two_restrictions_pass() throws Exception {
+        SAMLObjectBuilder<Conditions> builder = (SAMLObjectBuilder<Conditions>) builderFactory.getBuilder(Conditions.DEFAULT_ELEMENT_NAME);
+        Conditions conditions = builder.buildObject();
+        conditions.getConditions().add(helper.getAudienceRestriction("anotherAudience", "yetAnotherURI"));
         conditions.getConditions().add(helper.getAudienceRestriction(messageContext.getLocalEntityId()));
         profile.verifyAssertionConditions(conditions, messageContext, true);
     }

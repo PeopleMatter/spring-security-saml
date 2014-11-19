@@ -25,16 +25,21 @@ import org.opensaml.ws.message.decoder.MessageDecodingException;
 import org.opensaml.ws.message.encoder.MessageEncodingException;
 import org.opensaml.xml.Configuration;
 import org.opensaml.xml.XMLObject;
+import org.opensaml.xml.XMLObjectBuilder;
 import org.opensaml.xml.io.Marshaller;
 import org.opensaml.xml.io.MarshallingException;
-import org.opensaml.xml.signature.KeyInfo;
-import org.opensaml.xml.signature.X509Data;
+import org.opensaml.xml.security.SecurityHelper;
+import org.opensaml.xml.security.credential.Credential;
+import org.opensaml.xml.signature.*;
 import org.opensaml.xml.util.XMLHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.saml.key.KeyManager;
+import org.springframework.security.saml.metadata.ExtendedMetadata;
 import org.springframework.security.saml.metadata.MetadataManager;
 import org.w3c.dom.Element;
 
+import javax.net.ssl.HostnameVerifier;
 import javax.servlet.http.HttpServletRequest;
 import javax.xml.namespace.QName;
 import java.security.MessageDigest;
@@ -57,7 +62,6 @@ public class SAMLUtil {
      *
      * @param endpoint endpoint
      * @return binding supported by the endpoint
-     * @throws MetadataProviderException in case binding can't be determined
      */
     public static String getBindingForEndpoint(Endpoint endpoint) {
 
@@ -123,20 +127,6 @@ public class SAMLUtil {
         }
 
         return binding;
-    }
-
-    /**
-     * Returns default binding supported by IDP.
-     *
-     * @param descriptor descriptor to return binding for
-     * @return first binding in the list of supported
-     * @throws MetadataProviderException no binding found
-     */
-    public static String getDefaultBinding(IDPSSODescriptor descriptor) throws MetadataProviderException {
-        for (SingleSignOnService service : descriptor.getSingleSignOnServices()) {
-            return service.getBinding();
-        }
-        throw new MetadataProviderException("No SSO binding found for IDP");
     }
 
     public static IDPSSODescriptor getIDPSSODescriptor(EntityDescriptor idpEntityDescriptor) throws MessageDecodingException {
@@ -383,8 +373,11 @@ public class SAMLUtil {
      *          thrown if the give message can not be marshaled into its DOM representation
      */
     public static Element marshallMessage(XMLObject message) throws MessageEncodingException {
-        logger.debug("Marshalling message");
         try {
+            if (message.getDOM() != null) {
+                logger.debug("XMLObject already had cached DOM, returning that element");
+                return message.getDOM();
+            }
             Marshaller marshaller = Configuration.getMarshallerFactory().getMarshaller(message);
             if (marshaller == null) {
                 throw new MessageEncodingException("Unable to marshall message, no marshaller registered for message object: "
@@ -399,6 +392,59 @@ public class SAMLUtil {
             logger.error("Encountered error marshalling message to its DOM representation", e);
             throw new MessageEncodingException("Encountered error marshalling message into its DOM representation", e);
         }
+    }
+
+    /**
+     * Method digitally signs and marshals the object in case it is signable and the signing credential is provided.
+     *
+     * In case the object is already signed or the signing credential is not provided message is just marshalled.
+     *
+     * @param signableMessage    object to sign
+     * @param signingCredential credential to sign with
+     * @param signingAlgorithm  signing algorithm to use (optional). Leave null to use credential's default algorithm
+     * @param keyInfoGenerator name of generator used to create KeyInfo elements with key data
+     * @throws org.opensaml.ws.message.encoder.MessageEncodingException
+     *          thrown if there is a problem marshalling or signing the message
+     */
+    @SuppressWarnings("unchecked")
+    public static Element marshallAndSignMessage(SignableXMLObject signableMessage, Credential signingCredential, String signingAlgorithm, String keyInfoGenerator) throws MessageEncodingException {
+
+        if (signingCredential != null && !signableMessage.isSigned()) {
+
+            XMLObjectBuilder<Signature> signatureBuilder = org.opensaml.Configuration.getBuilderFactory().getBuilder(
+                    Signature.DEFAULT_ELEMENT_NAME);
+            Signature signature = signatureBuilder.buildObject(Signature.DEFAULT_ELEMENT_NAME);
+
+            if (signingAlgorithm != null) {
+                signature.setSignatureAlgorithm(signingAlgorithm);
+            }
+
+            signature.setSigningCredential(signingCredential);
+
+            try {
+                SecurityHelper.prepareSignatureParams(signature, signingCredential, null, keyInfoGenerator);
+            } catch (org.opensaml.xml.security.SecurityException e) {
+                throw new MessageEncodingException("Error preparing signature for signing", e);
+            }
+
+            signableMessage.setSignature(signature);
+            Element element = marshallMessage(signableMessage);
+
+            try {
+                Signer.signObject(signature);
+            } catch (SignatureException e) {
+                logger.error("Unable to sign protocol message", e);
+                throw new MessageEncodingException("Unable to sign protocol message", e);
+            }
+
+            return element;
+
+        } else {
+
+            return marshallMessage(signableMessage);
+
+        }
+
     }
 
     /**
@@ -442,6 +488,74 @@ public class SAMLUtil {
             cleanValue = "_" + cleanValue.substring(1);
         }
         return cleanValue;
+    }
+
+    /**
+     * Populates hostname verifier of the given type. Supported values are default, defaultAndLocalhost,
+     * strict and allowAll. Unsupported values will return default verifier.
+     *
+     * @param hostnameVerificationType type
+     * @return verifier
+     */
+    public static HostnameVerifier getHostnameVerifier(String hostnameVerificationType) {
+
+        HostnameVerifier hostnameVerifier;
+        if ("default".equalsIgnoreCase(hostnameVerificationType)) {
+            hostnameVerifier = org.apache.commons.ssl.HostnameVerifier.DEFAULT;
+        } else if ("defaultAndLocalhost".equalsIgnoreCase(hostnameVerificationType)) {
+            hostnameVerifier = org.apache.commons.ssl.HostnameVerifier.DEFAULT_AND_LOCALHOST;
+        } else if ("strict".equalsIgnoreCase(hostnameVerificationType)) {
+            hostnameVerifier = org.apache.commons.ssl.HostnameVerifier.STRICT;
+        } else if ("allowAll".equalsIgnoreCase(hostnameVerificationType)) {
+            hostnameVerifier = org.apache.commons.ssl.HostnameVerifier.ALLOW_ALL;
+        } else {
+            hostnameVerifier = org.apache.commons.ssl.HostnameVerifier.DEFAULT;
+        }
+
+        return hostnameVerifier;
+
+    }
+
+    /**
+     * Method digitally signs the EntityDescriptor element (when configured with property sign metadata) and
+     * serializes the result into a string.
+     *
+     * @param metadataManager metadata manager
+     * @param keyManager key manager
+     * @param descriptor descriptor to sign and serialize
+     * @param extendedMetadata information about metadata signing, looked up when null
+     * @return serialized and signed metadata
+     * @throws MarshallingException in case serialization fails
+     */
+    public static String getMetadataAsString(MetadataManager metadataManager, KeyManager keyManager, EntityDescriptor descriptor, ExtendedMetadata extendedMetadata) throws MarshallingException {
+
+        Element element;
+
+        if (extendedMetadata == null) {
+            try {
+                extendedMetadata = metadataManager.getExtendedMetadata(descriptor.getEntityID());
+            } catch (MetadataProviderException e) {
+                logger.error("Unable to locate extended metadata", e);
+                throw new MarshallingException("Unable to locate extended metadata", e);
+            }
+        }
+
+        try {
+            if (extendedMetadata.isLocal() && extendedMetadata.isSignMetadata()) {
+                Credential credential = keyManager.getCredential(extendedMetadata.getSigningKey());
+                String signingAlgorithm = extendedMetadata.getSigningAlgorithm();
+                String keyGenerator = extendedMetadata.getKeyInfoGeneratorName();
+                element = SAMLUtil.marshallAndSignMessage(descriptor, credential, signingAlgorithm, keyGenerator);
+            } else {
+                element = SAMLUtil.marshallMessage(descriptor);
+            }
+        } catch (MessageEncodingException e) {
+            logger.error("Unable to marshall message", e);
+            throw new MarshallingException("Unable to marshall message", e);
+        }
+
+        return XMLHelper.nodeToString(element);
+
     }
 
 }

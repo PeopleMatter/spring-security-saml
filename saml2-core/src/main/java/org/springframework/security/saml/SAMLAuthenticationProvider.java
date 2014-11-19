@@ -51,7 +51,8 @@ import java.util.*;
 public class SAMLAuthenticationProvider implements AuthenticationProvider, InitializingBean {
 
     private final static Logger log = LoggerFactory.getLogger(SAMLAuthenticationProvider.class);
-    private boolean forcePrincipalAsString = false;
+    private boolean forcePrincipalAsString = true;
+    private boolean excludeCredential = false;
     protected WebSSOProfileConsumer consumer;
     protected WebSSOProfileConsumer hokConsumer;
     protected SAMLLogger samlLogger;
@@ -112,7 +113,9 @@ public class SAMLAuthenticationProvider implements AuthenticationProvider, Initi
         GrantedAuthority[] entitlements = getEntitlements(credential, userDetails);
 
         Date expiration = getExpirationDate(credential);
-        ExpiringUsernameAuthenticationToken result = new ExpiringUsernameAuthenticationToken(expiration, principal, credential, entitlements);
+
+        SAMLCredential authenticationCredential = excludeCredential ? null : credential;
+        ExpiringUsernameAuthenticationToken result = new ExpiringUsernameAuthenticationToken(expiration, principal, authenticationCredential, entitlements);
         result.setDetails(userDetails);
 
         samlLogger.log(SAMLConstants.AUTH_N_RESPONSE, SAMLConstants.SUCCESS, context, result, null);
@@ -268,8 +271,34 @@ public class SAMLAuthenticationProvider implements AuthenticationProvider, Initi
         return forcePrincipalAsString;
     }
 
+    /**
+     * By default principal in the returned Authentication object is the NameID included in the
+     * authenticated Assertion. The NameID is not serializable.
+     *
+     * Setting this value to true will force the NameID value to be a String.
+     *
+     * @param forcePrincipalAsString true to force principal to be a String
+     */
     public void setForcePrincipalAsString(boolean forcePrincipalAsString) {
         this.forcePrincipalAsString = forcePrincipalAsString;
+    }
+
+    public boolean isExcludeCredential() {
+        return excludeCredential;
+    }
+
+    /**
+     * When false (default) the resulting Authentication object will include instance of SAMLCredential
+     * as a credential value. The credential includes information related to the authentication
+     * process, received attributes and is required for Single Logout.
+     *
+     * In case your application doesn't require the credential, it is possible to exclude it from
+     * the Authentication object by setting this flag to true.
+     *
+     * @param excludeCredential false to include credential in the Authentication object, true to exclude it
+     */
+    public void setExcludeCredential(boolean excludeCredential) {
+        this.excludeCredential = excludeCredential;
     }
 
     /**

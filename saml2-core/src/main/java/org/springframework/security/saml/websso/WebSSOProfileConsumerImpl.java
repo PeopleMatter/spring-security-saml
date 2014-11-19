@@ -24,8 +24,6 @@ import org.opensaml.xml.XMLObject;
 import org.opensaml.xml.encryption.DecryptionException;
 import org.opensaml.xml.signature.Signature;
 import org.opensaml.xml.validation.ValidationException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.CredentialsExpiredException;
 import org.springframework.security.InsufficientAuthenticationException;
 import org.springframework.security.AuthenticationException;
@@ -39,6 +37,7 @@ import org.springframework.util.Assert;
 
 import javax.xml.namespace.QName;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -52,8 +51,6 @@ import static org.springframework.security.saml.util.SAMLUtil.isDateTimeSkewVali
  * @author Vladimir Schäfer
  */
 public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements WebSSOProfileConsumer {
-
-    private final static Logger log = LoggerFactory.getLogger(WebSSOProfileConsumerImpl.class);
 
     public WebSSOProfileConsumerImpl() {
     }
@@ -71,6 +68,16 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
      * Maximum time between users authentication and processing of the AuthNResponse message.
      */
     private int maxAuthenticationAge = 7200;
+
+    /**
+     * Flag indicating whether to include attributes from all assertions, false by default.
+     */
+    private boolean includeAllAttributes = false;
+
+    /**
+     * Flag indicates whether to release internal DOM structures before returning SAMLCredential.
+     */
+    private boolean releaseDOM = true;
 
     /**
      * The input context object must have set the properties related to the returned Response, which is validated
@@ -106,8 +113,8 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
             throw new SAMLException("Response has invalid status code " + statusCode + ", status message is " + statusMessageText);
         }
 
-        // Verify signature of the response if present
-        if (response.getSignature() != null) {
+        // Verify signature of the response if present, unless already verified in binding
+        if (response.getSignature() != null && !context.isInboundSAMLMessageAuthenticated()) {
             log.debug("Verifying Response signature");
             verifySignature(response.getSignature(), context.getPeerEntityId(), context.getLocalTrustEngine());
             context.setInboundSAMLMessageAuthenticated(true);
@@ -117,6 +124,11 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
         DateTime time = response.getIssueInstant();
         if (!isDateTimeSkewValid(getResponseSkew(), time)) {
             throw new SAMLException("Response issue time is either too old or with date in the future, skew " + getResponseSkew() + ", time " + time);
+        }
+
+        // Reject unsolicited messages when disabled
+        if (!context.getPeerExtendedMetadata().isSupportUnsolicitedResponse() && response.getInResponseTo() == null) {
+            throw new SAMLException("Reception of Unsolicited Response messages (without InResponseToField) is disabled");
         }
 
         // Verify response to field if present, set request if correct
@@ -172,61 +184,67 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
         }
 
         Assertion subjectAssertion = null;
-        List<Attribute> attributes = new LinkedList<Attribute>();
-
-        // Verify assertions
+        List<Attribute> attributes = new ArrayList<Attribute>();
         List<Assertion> assertionList = response.getAssertions();
-        List<EncryptedAssertion> encryptedAssertionList = response.getEncryptedAssertions();
-        for (EncryptedAssertion ea : encryptedAssertionList) {
-            try {
-                Assert.notNull(context.getLocalDecrypter(), "Can't decrypt Assertion, no decrypter is set in the context");
-                log.debug("Decrypting assertion");
-                Assertion decryptedAssertion = context.getLocalDecrypter().decrypt(ea);
-                assertionList.add(decryptedAssertion);
-            } catch (DecryptionException e) {
-                log.debug("Decryption of received assertion failed, assertion will be skipped", e);
+
+        // Decrypt assertions
+        if (response.getEncryptedAssertions().size() > 0) {
+            assertionList = new ArrayList<Assertion>(response.getAssertions().size() + response.getEncryptedAssertions().size());
+            assertionList.addAll(response.getAssertions());
+            List<EncryptedAssertion> encryptedAssertionList = response.getEncryptedAssertions();
+            for (EncryptedAssertion ea : encryptedAssertionList) {
+                try {
+                    Assert.notNull(context.getLocalDecrypter(), "Can't decrypt Assertion, no decrypter is set in the context");
+                    log.debug("Decrypting assertion");
+                    Assertion decryptedAssertion = context.getLocalDecrypter().decrypt(ea);
+                    assertionList.add(decryptedAssertion);
+                } catch (DecryptionException e) {
+                    log.debug("Decryption of received assertion failed, assertion will be skipped", e);
+                }
             }
         }
 
         Exception lastError = null;
 
-        // Find the assertion to be used for session creation, other assertions are ignored
-        for (Assertion a : assertionList) {
-
-            // We're only interested in assertions with AuthnStatement
-            if (a.getAuthnStatements().size() > 0) {
+        // Find the assertion to be used for session creation and verify
+        for (Assertion assertion : assertionList) {
+            if (assertion.getAuthnStatements().size() > 0) {
                 try {
                     // Verify that the assertion is valid
-                    verifyAssertion(a, request, context);
+                    verifyAssertion(assertion, request, context);
+                    subjectAssertion = assertion;
+                    log.debug("Validation of authentication statement in assertion {} was successful", assertion.getID());
+                    break;
                 } catch (Exception e) {
+                    log.debug("Validation of authentication statement in assertion failed, skipping", e);
                     lastError = e;
-                    log.debug("Validation of received assertion failed, assertion will be skipped", e);
-                    continue;
                 }
             } else {
-                log.debug("Skipping assertion {} without any authentication statements", a);
+                log.debug("Assertion {} did not contain any authentication statements, skipping", assertion.getID());
             }
-
-            subjectAssertion = a;
-
-            // Process all attributes
-            for (AttributeStatement attStatement : a.getAttributeStatements()) {
-                for (Attribute att : attStatement.getAttributes()) {
-                    attributes.add(att);
-                }
-                for (EncryptedAttribute att : attStatement.getEncryptedAttributes()) {
-                    Assert.notNull(context.getLocalDecrypter(), "Can't decrypt Attribute, no decrypter is set in the context");
-                    attributes.add(context.getLocalDecrypter().decrypt(att));
-                }
-            }
-
-            break;
-
         }
 
-        // Make sure that at least one storage contains authentication statement and subject with bearer confirmation
+        // Make sure that at least one assertion contains authentication statement and subject with bearer confirmation
         if (subjectAssertion == null) {
             throw new SAMLException("Response doesn't have any valid assertion which would pass subject validation", lastError);
+        }
+
+        // Process attributes from assertions
+        for (Assertion assertion : assertionList) {
+            if (assertion == subjectAssertion || isIncludeAllAttributes()) {
+                for (AttributeStatement attStatement : assertion.getAttributeStatements()) {
+                    for (Attribute att : attStatement.getAttributes()) {
+                        log.debug("Including attribute {} from assertion {}", att.getName(), assertion.getID());
+                        attributes.add(att);
+                    }
+                    for (EncryptedAttribute att : attStatement.getEncryptedAttributes()) {
+                        Assert.notNull(context.getLocalDecrypter(), "Can't decrypt Attribute, no decrypter is set in the context");
+                        Attribute decryptedAttribute = context.getLocalDecrypter().decrypt(att);
+                        log.debug("Including decrypted attribute {} from assertion {}", decryptedAttribute.getName(), assertion.getID());
+                        attributes.add(decryptedAttribute);
+                    }
+                }
+            }
         }
 
         NameID nameId = (NameID) context.getSubjectNameIdentifier();
@@ -236,6 +254,12 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
 
         // Populate custom data, if any
         Serializable additionalData = processAdditionalData(context);
+
+        // Release extra DOM data which might get otherwise stored in session
+        if (isReleaseDOM()) {
+            subjectAssertion.releaseDOM();
+            subjectAssertion.releaseChildrenDOM(true);
+        }
 
         // Create the credential
         return new SAMLCredential(nameId, subjectAssertion, context.getPeerEntityMetadata().getEntityID(), context.getRelayState(), attributes, context.getLocalEntityId(), additionalData);
@@ -431,18 +455,7 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
 
             if (conditionQName.equals(AudienceRestriction.DEFAULT_ELEMENT_NAME)) {
 
-                audience:
-                for (AudienceRestriction rest : conditions.getAudienceRestrictions()) {
-                    if (rest.getAudiences().size() == 0) {
-                        throw new SAMLException("No audit audience specified for the assertion");
-                    }
-                    for (Audience aud : rest.getAudiences()) {
-                        if (context.getLocalEntityId().equals(aud.getAudienceURI())) {
-                            continue audience;
-                        }
-                    }
-                    throw new SAMLException("Our entity is not the intended audience of the assertion");
-                }
+                verifyAudience(context, conditions.getAudienceRestrictions());
 
             } else if (conditionQName.equals(OneTimeUse.DEFAULT_ELEMENT_NAME)) {
 
@@ -464,6 +477,35 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
 
         // Check not understood conditions
         verifyConditions(context, notUnderstoodConditions);
+
+    }
+
+    /**
+     * Method verifies audience restrictions of the assertion. Multiple audience restrictions are treated as
+     * a logical AND and local entity must be present in all of them. Multiple audiences within one restrictions
+     * for a logical OR.
+     *
+     * @param context context
+     * @param audienceRestrictions audience restrictions to verify
+     * @throws SAMLException in case local entity doesn't match the audience restrictions
+     */
+    protected void verifyAudience(SAMLMessageContext context, List<AudienceRestriction> audienceRestrictions) throws SAMLException {
+
+        // Multiple AudienceRestrictions form a logical "AND" (saml-core, 922-925)
+        audience:
+        for (AudienceRestriction rest : audienceRestrictions) {
+            if (rest.getAudiences().size() == 0) {
+                throw new SAMLException("No audit audience specified for the assertion");
+            }
+            for (Audience aud : rest.getAudiences()) {
+                // Multiple Audiences within one AudienceRestriction form a logical "OR" (saml-core, 922-925)
+                if (context.getLocalEntityId().equals(aud.getAudienceURI())) {
+                    continue audience;
+                }
+            }
+            throw new SAMLException("Local entity is not the intended audience of the assertion in at least " +
+                    "one AudienceRestriction");
+        }
 
     }
 
@@ -566,7 +608,7 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
     /**
      * Maximum time between authentication of user and processing of an authentication statement.
      *
-     * @return max authentication age, defaults to 7200
+     * @return max authentication age, defaults to 7200 (in seconds)
      */
     public int getMaxAuthenticationAge() {
         return maxAuthenticationAge;
@@ -579,6 +621,40 @@ public class WebSSOProfileConsumerImpl extends AbstractProfileBase implements We
      */
     public void setMaxAuthenticationAge(int maxAuthenticationAge) {
         this.maxAuthenticationAge = maxAuthenticationAge;
+    }
+
+    /**
+     * @return true to include attributes from all assertions, false to only include those from the confirmed assertion
+     */
+    public boolean isIncludeAllAttributes() {
+        return includeAllAttributes;
+    }
+
+    /**
+     * Flag indicates whether to include attributes from all assertions (value true), or only from
+     * the assertion which was authentication using the Bearer SubjectConfirmation (value false, by default).
+     *
+     * @param includeAllAttributes true to include attributes from all assertions
+     */
+    public void setIncludeAllAttributes(boolean includeAllAttributes) {
+        this.includeAllAttributes = includeAllAttributes;
+    }
+
+    /**
+     * @return release dom flag, true by default
+     */
+    public boolean isReleaseDOM() {
+        return releaseDOM;
+    }
+
+    /**
+     * Flag indicates whether to release internal structure of the assertion returned in SAMLCredential. Set to false
+     * in case you'd like to have access to the original Assertion value (include signatures).
+     *
+     * @param releaseDOM release dom flag
+     */
+    public void setReleaseDOM(boolean releaseDOM) {
+        this.releaseDOM = releaseDOM;
     }
 
 }

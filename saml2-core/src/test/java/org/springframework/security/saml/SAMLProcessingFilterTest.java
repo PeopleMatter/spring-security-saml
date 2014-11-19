@@ -135,8 +135,8 @@ public class
     @Test
     public void testCorrectPass() throws Exception {
         expect(request.getSession(true)).andReturn(session);
-        expect(session.getAttribute("_springSamlStorageKey")).andReturn(null);
-        expectLastCall().times(2);
+        //expect(session.getAttribute("_springSamlStorageKey")).andReturn(null);
+        //expectLastCall().times(2);
 
         
 
